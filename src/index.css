@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-background: 15 23 42;
+  --color-surface: 30 41 59;
+  --color-foreground: 248 250 252;
+  --color-border: 51 65 85;
+  --color-overlay: 255 255 255;
+}
+
+html.light {
+  --color-background: 248 250 252;
+  --color-surface: 255 255 255;
+  --color-foreground: 15 23 42;
+  --color-border: 226 232 240;
+  --color-overlay: 15 23 42;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #root {
+    @apply mx-auto min-h-screen w-full max-w-app;
+  }
+}
