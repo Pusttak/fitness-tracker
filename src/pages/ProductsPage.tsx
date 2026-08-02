@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Pencil, Plus, Search, Star, Trash2 } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
@@ -6,6 +6,7 @@ import { useHideBottomNav } from '../context/LayoutChromeContext'
 import { useProducts } from '../hooks/useProducts'
 import { useRecipes, type RecipeWithCount } from '../hooks/useRecipes'
 import { useDirtyForm } from '../hooks/useDirtyForm'
+import { useFormPersist } from '../hooks/useFormPersist'
 import { SwipeActions } from '../components/SwipeActions'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
 import { isValidNumberInput } from '../lib/validation'
@@ -37,6 +38,39 @@ function perPieceTo100(perPiece: number, pieceWeight: number): number {
   return round1((perPiece / pieceWeight) * 100)
 }
 
+interface NewProductDraft {
+  name: string
+  inputMode: UnitMode
+  calories: string
+  protein: string
+  fat: string
+  carbs: string
+  pieceWeight: string
+  servingName: string
+}
+
+const NEW_PRODUCT_DRAFT_DEFAULT: NewProductDraft = {
+  name: '',
+  inputMode: 'per100g',
+  calories: '',
+  protein: '',
+  fat: '',
+  carbs: '',
+  pieceWeight: '',
+  servingName: 'шт',
+}
+
+function hasDraftContent(d: NewProductDraft): boolean {
+  return (
+    d.name.trim() !== '' ||
+    d.calories.trim() !== '' ||
+    d.protein.trim() !== '' ||
+    d.fat.trim() !== '' ||
+    d.carbs.trim() !== '' ||
+    d.pieceWeight.trim() !== ''
+  )
+}
+
 function pluralizeIngredients(n: number): string {
   const mod10 = n % 10
   const mod100 = n % 100
@@ -58,7 +92,13 @@ export function ProductsPage() {
   const { showToast } = useToast()
   const [tab, setTab] = useState<Tab>('products')
 
-  const [productView, setProductView] = useState<ProductView>('list')
+  const {
+    values: newProductDraft,
+    setValues: setNewProductDraft,
+    clearPersisted: clearNewProductDraft,
+  } = useFormPersist<NewProductDraft>('new-product-form', NEW_PRODUCT_DRAFT_DEFAULT)
+
+  const [productView, setProductView] = useState<ProductView>(() => (hasDraftContent(newProductDraft) ? 'form' : 'list'))
   useHideBottomNav(productView === 'form')
   const [productFilter, setProductFilter] = useState<ProductFilter>('all')
   const [productQuery, setProductQuery] = useState('')
@@ -67,15 +107,42 @@ export function ProductsPage() {
   const [deleteRecipeTarget, setDeleteRecipeTarget] = useState<RecipeWithCount | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  const [formName, setFormName] = useState('')
-  const [formCalories, setFormCalories] = useState('')
-  const [formProtein, setFormProtein] = useState('')
-  const [formFat, setFormFat] = useState('')
-  const [formCarbs, setFormCarbs] = useState('')
+  const [formName, setFormName] = useState(() => newProductDraft.name)
+  const [formCalories, setFormCalories] = useState(() => newProductDraft.calories)
+  const [formProtein, setFormProtein] = useState(() => newProductDraft.protein)
+  const [formFat, setFormFat] = useState(() => newProductDraft.fat)
+  const [formCarbs, setFormCarbs] = useState(() => newProductDraft.carbs)
   const [formFavorite, setFormFavorite] = useState(false)
-  const [formUnitMode, setFormUnitMode] = useState<UnitMode>('per100g')
-  const [formPieceWeight, setFormPieceWeight] = useState('')
-  const [formServingName, setFormServingName] = useState('шт')
+  const [formUnitMode, setFormUnitMode] = useState<UnitMode>(() => newProductDraft.inputMode)
+  const [formPieceWeight, setFormPieceWeight] = useState(() => newProductDraft.pieceWeight)
+  const [formServingName, setFormServingName] = useState(() => newProductDraft.servingName)
+
+  useEffect(() => {
+    if (productView === 'form' && editingProduct === null) {
+      setNewProductDraft({
+        name: formName,
+        inputMode: formUnitMode,
+        calories: formCalories,
+        protein: formProtein,
+        fat: formFat,
+        carbs: formCarbs,
+        pieceWeight: formPieceWeight,
+        servingName: formServingName,
+      })
+    }
+  }, [
+    productView,
+    editingProduct,
+    formName,
+    formUnitMode,
+    formCalories,
+    formProtein,
+    formFat,
+    formCarbs,
+    formPieceWeight,
+    formServingName,
+    setNewProductDraft,
+  ])
 
   const {
     products,
@@ -154,6 +221,7 @@ export function ProductsPage() {
     setFormUnitMode('per100g')
     setFormPieceWeight('')
     setFormServingName('шт')
+    clearNewProductDraft()
     productForm.markClean()
     setProductView('form')
   }
@@ -230,6 +298,7 @@ export function ProductsPage() {
         await updateProduct(editingProduct.id, patch)
       } else {
         await addProduct(patch)
+        clearNewProductDraft()
       }
       showToast('Сохранено ✓')
       productForm.markClean()

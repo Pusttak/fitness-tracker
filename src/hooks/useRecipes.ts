@@ -48,7 +48,8 @@ export function useRecipes() {
     }
 
     setLoading(false)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchRecipes()
@@ -68,12 +69,14 @@ export function useRecipes() {
   async function getRecipeIngredients(recipeId: string): Promise<RecipeIngredientDraft[]> {
     const { data } = await supabase
       .from('recipe_ingredients')
-      .select('weight_g, products(*)')
+      .select('weight_g, pieces, products(*)')
       .eq('recipe_id', recipeId)
 
-    return ((data as { weight_g: number; products: Product | null }[] | null) ?? [])
-      .filter((row): row is { weight_g: number; products: Product } => row.products !== null)
-      .map((row) => ({ product: row.products, weight_g: row.weight_g }))
+    return ((data as { weight_g: number; pieces: number | null; products: Product | null }[] | null) ?? [])
+      .filter(
+        (row): row is { weight_g: number; pieces: number | null; products: Product } => row.products !== null,
+      )
+      .map((row) => ({ product: row.products, weight_g: row.weight_g, pieces: row.pieces }))
   }
 
   async function saveRecipe(
@@ -126,6 +129,7 @@ export function useRecipes() {
             recipe_id: recipe.id,
             product_id: ing.product.id,
             weight_g: ing.weight_g,
+            pieces: ing.pieces,
           })),
         )
         if (ingredientsError) throw ingredientsError

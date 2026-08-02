@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useErrorReporter } from './useErrorReporter'
+import { addDays, getLocalToday } from '../lib/dates'
 import type { Product } from '../types/database'
 
 const RECENT_DAYS = 7
@@ -39,7 +40,8 @@ export function useProducts() {
 
     setProducts((data as Product[] | null) ?? [])
     setLoading(false)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchProducts()
@@ -51,9 +53,7 @@ export function useProducts() {
       return
     }
 
-    const since = new Date()
-    since.setDate(since.getDate() - RECENT_DAYS)
-    const sinceIso = since.toISOString().slice(0, 10)
+    const sinceIso = addDays(getLocalToday(), -RECENT_DAYS)
 
     const { data } = await supabase
       .from('meal_log')
@@ -75,7 +75,8 @@ export function useProducts() {
       .map(([id]) => id)
 
     setRecentIds(sorted)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchRecent()

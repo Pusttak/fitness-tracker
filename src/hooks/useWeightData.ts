@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useErrorReporter } from './useErrorReporter'
 import { calcMovingAverage, type WeightPoint } from '../lib/calculations'
+import { addDays, getLocalToday } from '../lib/dates'
 import type { WeightLog } from '../types/database'
 
 export type WeightPeriod = '1w' | '1m' | '3m' | 'all'
@@ -21,16 +22,10 @@ export interface WeightHistoryEntry {
   deltaKg: number | null
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
-}
-
 function periodCutoffDate(period: WeightPeriod, latestDateIso: string | null): string | null {
   if (period === 'all' || !latestDateIso) return null
   const days = period === '1w' ? 7 : period === '1m' ? 30 : 90
-  const date = new Date(latestDateIso)
-  date.setDate(date.getDate() - (days - 1))
-  return date.toISOString().slice(0, 10)
+  return addDays(latestDateIso, -(days - 1))
 }
 
 export function useWeightData(period: WeightPeriod) {
@@ -64,7 +59,8 @@ export function useWeightData(period: WeightPeriod) {
 
     setRawWeights((data as WeightLog[] | null) ?? [])
     setLoading(false)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchWeights()
@@ -102,9 +98,7 @@ export function useWeightData(period: WeightPeriod) {
     let monthChangePct: number | null = null
 
     if (latestDate) {
-      const target = new Date(latestDate)
-      target.setDate(target.getDate() - 30)
-      const targetIso = target.toISOString().slice(0, 10)
+      const targetIso = addDays(latestDate, -30)
       const refPoint = [...fullMovingAverage].reverse().find((p) => p.date <= targetIso) ?? null
 
       if (refPoint) {
@@ -132,7 +126,7 @@ export function useWeightData(period: WeightPeriod) {
   )
 
   const todayWeight = useMemo(
-    () => rawWeights.find((w) => w.date === todayIso()) ?? null,
+    () => rawWeights.find((w) => w.date === getLocalToday()) ?? null,
     [rawWeights],
   )
 

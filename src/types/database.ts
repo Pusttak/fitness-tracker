@@ -86,6 +86,7 @@ export interface RecipeIngredient {
   recipe_id: string
   product_id: string
   weight_g: number
+  pieces: number | null
 }
 
 export interface MealLog {

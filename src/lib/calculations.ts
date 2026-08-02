@@ -1,3 +1,4 @@
+import { parseLocalDate } from './dates'
 import type { DailyActivity, Gender, Goal } from '../types/database'
 
 /** Базовый коэффициент активности вне тренировок */
@@ -165,6 +166,65 @@ export function calcBMI(weight_kg: number, height_cm: number): number {
   return weight_kg / (height_m * height_m)
 }
 
+export type IndicatorColor = 'green' | 'yellow' | 'red'
+
+export interface IndicatorCategory {
+  label: string
+  color: IndicatorColor
+}
+
+/**
+ * Рассчитывает соотношение талии к бёдрам (WHR).
+ *
+ * @param waist_cm - обхват талии, см
+ * @param hips_cm - обхват бёдер, см
+ */
+export function calcWHR(waist_cm: number, hips_cm: number): number {
+  return waist_cm / hips_cm
+}
+
+/**
+ * Определяет категорию WHR по полу.
+ * Мужчины: <0.9 норма, 0.9-1.0 повышенный, >1.0 высокий.
+ * Женщины: <0.85 норма, 0.85-0.95 повышенный, >0.95 высокий.
+ */
+export function getWHRCategory(whr: number, gender: Gender): IndicatorCategory {
+  if (gender === 'male') {
+    if (whr < 0.9) return { label: 'Норма', color: 'green' }
+    if (whr <= 1.0) return { label: 'Повышенный', color: 'yellow' }
+    return { label: 'Высокий', color: 'red' }
+  }
+
+  if (whr < 0.85) return { label: 'Норма', color: 'green' }
+  if (whr <= 0.95) return { label: 'Повышенный', color: 'yellow' }
+  return { label: 'Высокий', color: 'red' }
+}
+
+/**
+ * Рассчитывает соотношение талии к росту (WHtR).
+ *
+ * @param waist_cm - обхват талии, см
+ * @param height_cm - рост, см
+ */
+export function calcWHtR(waist_cm: number, height_cm: number): number {
+  return waist_cm / height_cm
+}
+
+/** Определяет категорию WHtR: <0.5 норма, 0.5-0.6 повышенный, >0.6 высокий. */
+export function getWHtRCategory(whtr: number): IndicatorCategory {
+  if (whtr < 0.5) return { label: 'Норма', color: 'green' }
+  if (whtr <= 0.6) return { label: 'Повышенный', color: 'yellow' }
+  return { label: 'Высокий', color: 'red' }
+}
+
+/** Определяет категорию ИМТ: <18.5 дефицит, 18.5-25 норма, 25-30 избыток, >30 ожирение. */
+export function getBMICategory(bmi: number): IndicatorCategory {
+  if (bmi < 18.5) return { label: 'Дефицит', color: 'yellow' }
+  if (bmi < 25) return { label: 'Норма', color: 'green' }
+  if (bmi < 30) return { label: 'Избыток', color: 'yellow' }
+  return { label: 'Ожирение', color: 'red' }
+}
+
 export type BodyFatCategory = 'Мало жира' | 'В норме' | 'Выше нормы' | 'Ожирение'
 
 /** Границы процента жира по полу: [normal, above) — «в норме», [above, obese) — «выше нормы» */
@@ -265,7 +325,7 @@ export function calcTrainingPlan(goal: Goal, bodyFatPct: number, gender: Gender)
  * @returns возраст в полных годах на текущую дату
  */
 export function calcAge(birth_date: string): number {
-  const birth = new Date(birth_date)
+  const birth = parseLocalDate(birth_date)
   const today = new Date()
 
   let age = today.getFullYear() - birth.getFullYear()

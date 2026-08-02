@@ -16,10 +16,12 @@ import { useHideBottomNav } from '../context/LayoutChromeContext'
 import { useWorkouts, type MuscleGroupStat, type WeekSummary, type WorkoutInput } from '../hooks/useWorkouts'
 import { useWorkoutAdvice, type WorkoutAdvice, type WorkoutAdviceIcon } from '../hooks/useWorkoutAdvice'
 import { useDirtyForm } from '../hooks/useDirtyForm'
+import { useFormPersist } from '../hooks/useFormPersist'
 import { SwipeActions } from '../components/SwipeActions'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
 import { MUSCLE_GROUPS, MUSCLE_GROUP_LABELS, type MuscleGroup } from '../lib/muscleGroups'
 import { isValidNumberInput } from '../lib/validation'
+import { addDays, getLocalToday, parseLocalDate } from '../lib/dates'
 import { WorkoutsPageSkeleton } from '../components/PageSkeletons'
 import { ErrorState } from '../components/ErrorState'
 import type { Intensity, Workout, WorkoutType } from '../types/database'
@@ -52,7 +54,20 @@ const INTENSITY_LABEL: Record<Intensity, { label: string; colorClass: string }> 
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return getLocalToday()
+}
+
+interface WorkoutDraft {
+  date: string
+  workoutType: WorkoutType
+  muscleGroups: MuscleGroup[]
+  duration: string
+  intensity: Intensity
+  notes: string
+}
+
+function defaultWorkoutDraft(): WorkoutDraft {
+  return { date: todayIso(), workoutType: 'strength', muscleGroups: [], duration: '', intensity: 'moderate', notes: '' }
 }
 
 function parseDecimal(value: string): number {
@@ -60,7 +75,7 @@ function parseDecimal(value: string): number {
 }
 
 function formatFullDate(dateIso: string): string {
-  const date = new Date(dateIso)
+  const date = parseLocalDate(dateIso)
   const dayMonth = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(date)
   const weekday = new Intl.DateTimeFormat('ru-RU', { weekday: 'long' }).format(date)
   return `${dayMonth}, ${weekday}`
@@ -337,11 +352,10 @@ function CalendarSection({ workouts }: { workouts: Workout[] }) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const days = useMemo(() => {
+    const today = getLocalToday()
     const result: string[] = []
     for (let i = 13; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      result.push(d.toISOString().slice(0, 10))
+      result.push(addDays(today, -i))
     }
     return result
   }, [])
@@ -385,7 +399,7 @@ function CalendarSection({ workouts }: { workouts: Workout[] }) {
                 {workout?.workout_type === 'strength' && <Dumbbell size={18} className="text-white" />}
                 {workout?.workout_type === 'cardio' && <Activity size={18} className="text-white" />}
               </div>
-              <span className="text-[10px] text-foreground/50">{WEEKDAY_SHORT[new Date(date).getDay()]}</span>
+              <span className="text-[10px] text-foreground/50">{WEEKDAY_SHORT[parseLocalDate(date).getDay()]}</span>
             </button>
           )
         })}
@@ -524,17 +538,40 @@ interface WorkoutFormProps {
 }
 
 function WorkoutForm({ editing, onCancel, onSave }: WorkoutFormProps) {
-  const [date, setDate] = useState(editing?.date ?? todayIso())
-  const [type, setType] = useState<WorkoutType>(editing?.workout_type ?? 'strength')
-  const [groups, setGroups] = useState<Set<MuscleGroup>>(
-    () => new Set((editing?.muscle_groups as MuscleGroup[] | undefined) ?? []),
+  const isNew = !editing
+  const { values: workoutDraft, setValues: setWorkoutDraft, clearPersisted: clearWorkoutDraft } = useFormPersist<WorkoutDraft>(
+    'new-workout-form',
+    defaultWorkoutDraft(),
   )
-  const [durationInput, setDurationInput] = useState(String(editing?.duration_minutes ?? 60))
-  const [intensity, setIntensity] = useState<Intensity>(editing?.intensity ?? 'moderate')
-  const [notes, setNotes] = useState(editing?.notes ?? '')
+
+  const [date, setDate] = useState(() => editing?.date ?? (isNew ? workoutDraft.date : todayIso()))
+  const [type, setType] = useState<WorkoutType>(() => editing?.workout_type ?? (isNew ? workoutDraft.workoutType : 'strength'))
+  const [groups, setGroups] = useState<Set<MuscleGroup>>(
+    () =>
+      new Set(
+        (editing?.muscle_groups as MuscleGroup[] | undefined) ?? (isNew ? workoutDraft.muscleGroups : []),
+      ),
+  )
+  const [durationInput, setDurationInput] = useState(() =>
+    editing ? String(editing.duration_minutes) : isNew && workoutDraft.duration ? workoutDraft.duration : '60',
+  )
+  const [intensity, setIntensity] = useState<Intensity>(() => editing?.intensity ?? (isNew ? workoutDraft.intensity : 'moderate'))
+  const [notes, setNotes] = useState(() => editing?.notes ?? (isNew ? workoutDraft.notes : ''))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const workoutForm = useDirtyForm()
+
+  useEffect(() => {
+    if (!isNew) return
+    setWorkoutDraft({
+      date,
+      workoutType: type,
+      muscleGroups: Array.from(groups),
+      duration: durationInput,
+      intensity,
+      notes,
+    })
+  }, [isNew, date, type, groups, durationInput, intensity, notes, setWorkoutDraft])
 
   const showGroups = type !== 'cardio'
   const duration = parseDecimal(durationInput)
@@ -573,6 +610,7 @@ function WorkoutForm({ editing, onCancel, onSave }: WorkoutFormProps) {
         editing?.id,
       )
       workoutForm.markClean()
+      clearWorkoutDraft()
     } catch {
       setError('Не удалось сохранить тренировку. Попробуйте ещё раз.')
       setSubmitting(false)

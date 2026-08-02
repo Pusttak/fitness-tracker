@@ -3,6 +3,7 @@ import type { Product } from '../types/database'
 export interface RecipeIngredientDraft {
   product: Product
   weight_g: number
+  pieces: number | null
 }
 
 export interface NutrientAmounts {

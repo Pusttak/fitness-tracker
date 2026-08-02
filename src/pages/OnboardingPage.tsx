@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getLocalToday } from '../lib/dates'
 import {
   calcAge,
   calcBMI,
@@ -72,7 +73,10 @@ const BODY_FAT_CATEGORY_CLASSES: Record<string, string> = {
 function isoDateYearsAgo(years: number): string {
   const date = new Date()
   date.setFullYear(date.getFullYear() - years)
-  return date.toISOString().slice(0, 10)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function parseDecimal(value: string): number {
@@ -192,7 +196,7 @@ export function OnboardingPage() {
     setSubmitting(true)
     setError(null)
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = getLocalToday()
 
     const { error: profileError } = await supabase.from('profiles').insert({
       id: user.id,

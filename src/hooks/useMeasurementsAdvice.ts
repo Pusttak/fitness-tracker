@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { calcBMI, calcWHR, calcWHtR, getWHRCategory } from '../lib/calculations'
 import type { Gender, Goal, Measurement } from '../types/database'
 
 export type AdviceIcon = 'good' | 'warning' | 'bad' | 'info'
@@ -26,8 +27,44 @@ export function getMeasurementsAdvice(
   goal: Goal,
   current: Measurement,
   previous: Measurement | null,
-  _gender: Gender,
+  gender: Gender,
+  heightCm: number | null,
+  currentWeightKg: number | null,
 ): MeasurementsAdvice {
+  const whr = current.waist_cm !== null && current.hips_cm !== null ? calcWHR(current.waist_cm, current.hips_cm) : null
+  const whtr = current.waist_cm !== null && heightCm !== null ? calcWHtR(current.waist_cm, heightCm) : null
+  const bmi = currentWeightKg !== null && heightCm !== null ? calcBMI(currentWeightKg, heightCm) : null
+
+  // WHR высокий
+  if (whr && getWHRCategory(whr, gender).color === 'red') {
+    return {
+      icon: 'warning',
+      text:
+        'Соотношение талия/бёдра выше нормы — это говорит о повышенном висцеральном жире. ' +
+        'Кардио и дефицит калорий помогут снизить его.',
+    }
+  }
+
+  // WHtR пограничный
+  if (whtr && whtr >= 0.5 && whtr < 0.6) {
+    return {
+      icon: 'warning',
+      text:
+        'Отношение талии к росту на границе нормы. ' +
+        'Снижение обхвата талии на 2-3 см вернёт показатель в зелёную зону.',
+    }
+  }
+
+  // ИМТ не показателен для тренирующихся
+  if (bmi && bmi >= 25 && current.body_fat_pct !== null && current.body_fat_pct < 20) {
+    return {
+      icon: 'info',
+      text:
+        'ИМТ выше нормы, но процент жира в порядке — это нормально при развитой мускулатуре. ' +
+        'Ориентируйся на процент жира и обхваты, а не на ИМТ.',
+    }
+  }
+
   if (!previous) {
     return {
       icon: 'info',
@@ -121,9 +158,11 @@ export function useMeasurementsAdvice(
   current: Measurement | null,
   previous: Measurement | null,
   gender: Gender | null,
+  heightCm: number | null,
+  currentWeightKg: number | null,
 ): MeasurementsAdvice | null {
   return useMemo(() => {
     if (!goal || !current || !gender) return null
-    return getMeasurementsAdvice(goal, current, previous, gender)
-  }, [goal, current, previous, gender])
+    return getMeasurementsAdvice(goal, current, previous, gender, heightCm, currentWeightKg)
+  }, [goal, current, previous, gender, heightCm, currentWeightKg])
 }

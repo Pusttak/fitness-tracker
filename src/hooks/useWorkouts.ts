@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useErrorReporter } from './useErrorReporter'
 import { MUSCLE_GROUPS } from '../lib/muscleGroups'
+import { addDays, diffDays, getLocalToday, parseLocalDate } from '../lib/dates'
 import type { Workout } from '../types/database'
 
 export type WorkoutInput = Omit<Workout, 'id' | 'user_id' | 'created_at'>
@@ -29,19 +30,13 @@ export interface WorkoutStats {
   muscleGroups: MuscleGroupStat[]
 }
 
-function getMonday(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  return d
-}
-
 function getCurrentWeekRange(): { start: string; end: string } {
-  const monday = getMonday(new Date())
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  return { start: monday.toISOString().slice(0, 10), end: sunday.toISOString().slice(0, 10) }
+  const today = getLocalToday()
+  const day = parseLocalDate(today).getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  const monday = addDays(today, diff)
+  const sunday = addDays(monday, 6)
+  return { start: monday, end: sunday }
 }
 
 export function useWorkouts() {
@@ -75,7 +70,8 @@ export function useWorkouts() {
 
     setWorkouts((data as Workout[] | null) ?? [])
     setLoading(false)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchWorkouts()
@@ -95,10 +91,8 @@ export function useWorkouts() {
     const recommendedTotal = recommendedStrength + recommendedCardio
     const progressPct = recommendedTotal > 0 ? (totalCount / recommendedTotal) * 100 : 0
 
-    const today = new Date()
-    const cutoff = new Date(today)
-    cutoff.setDate(cutoff.getDate() - 14)
-    const cutoffIso = cutoff.toISOString().slice(0, 10)
+    const today = getLocalToday()
+    const cutoffIso = addDays(today, -14)
     const last14 = workouts.filter((w) => w.date >= cutoffIso)
 
     const muscleGroups: MuscleGroupStat[] = MUSCLE_GROUPS.map((group) => {
@@ -107,7 +101,7 @@ export function useWorkouts() {
         .filter((w) => w.muscle_groups.includes(group))
         .sort((a, b) => b.date.localeCompare(a.date))
       const last = allTrained[0] ?? null
-      const daysSince = last ? Math.floor((today.getTime() - new Date(last.date).getTime()) / 86400000) : null
+      const daysSince = last ? diffDays(today, last.date) : null
       return { group, count14d, lastTrainedDate: last?.date ?? null, daysSince }
     })
 

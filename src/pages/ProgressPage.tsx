@@ -25,6 +25,7 @@ import { calcTargets } from '../lib/calculations'
 import { MUSCLE_GROUPS, MUSCLE_GROUP_LABELS, type MuscleGroup } from '../lib/muscleGroups'
 import { ProgressPageSkeleton } from '../components/PageSkeletons'
 import { ErrorState } from '../components/ErrorState'
+import { parseLocalDate } from '../lib/dates'
 import type { Goal, Measurement } from '../types/database'
 
 const PERIOD_OPTIONS: { value: ProgressPeriod; label: string }[] = [
@@ -35,17 +36,17 @@ const PERIOD_OPTIONS: { value: ProgressPeriod; label: string }[] = [
 ]
 
 function formatShortDate(dateIso: string): string {
-  const date = new Date(dateIso)
+  const date = parseLocalDate(dateIso)
   return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
 function formatDayMonth(dateIso: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(dateIso))
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(parseLocalDate(dateIso))
 }
 
 function formatWeekRange(start: string, end: string): string {
-  const startDate = new Date(start)
-  const endDate = new Date(end)
+  const startDate = parseLocalDate(start)
+  const endDate = parseLocalDate(end)
   const endFormatted = formatDayMonth(end)
   if (startDate.getMonth() === endDate.getMonth()) {
     return `${startDate.getDate()}-${endFormatted}`

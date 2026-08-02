@@ -14,6 +14,7 @@ import { SwipeActions } from '../components/SwipeActions'
 import { Skeleton } from '../components/Skeleton'
 import { ErrorState } from '../components/ErrorState'
 import { isValidNumberInput, parseNumberInput } from '../lib/validation'
+import { addDays, getLocalToday, parseLocalDate } from '../lib/dates'
 import type { MealType, Workout, WorkoutType } from '../types/database'
 
 const WORKOUT_TYPE_LABEL: Record<WorkoutType, string> = {
@@ -23,19 +24,17 @@ const WORKOUT_TYPE_LABEL: Record<WorkoutType, string> = {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return getLocalToday()
 }
 
 function shiftDate(dateIso: string, days: number): string {
-  const date = new Date(dateIso)
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
+  return addDays(dateIso, days)
 }
 
 function formatDateLabel(dateIso: string): string {
   const today = todayIso()
   const dayMonth = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(
-    new Date(dateIso),
+    parseLocalDate(dateIso),
   )
 
   if (dateIso === today) return `Сегодня, ${dayMonth}`

@@ -25,6 +25,7 @@ import { useToast } from '../context/ToastContext'
 import { useWeightData, type WeightPeriod } from '../hooks/useWeightData'
 import { useWeightAdvice, type AdviceIcon, type WeightAdvice } from '../hooks/useWeightAdvice'
 import { isValidNumberInput, parseNumberInput } from '../lib/validation'
+import { getLocalToday, parseLocalDate } from '../lib/dates'
 import { WeightPageSkeleton } from '../components/PageSkeletons'
 import { ErrorState } from '../components/ErrorState'
 import type { Goal } from '../types/database'
@@ -39,20 +40,20 @@ const PERIOD_OPTIONS: { value: WeightPeriod; label: string }[] = [
 const RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return getLocalToday()
 }
 
 function formatDayMonth(dateIso: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(dateIso))
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(parseLocalDate(dateIso))
 }
 
 function formatShortDate(dateIso: string): string {
-  const date = new Date(dateIso)
+  const date = parseLocalDate(dateIso)
   return `${date.getDate()} ${RU_MONTHS_SHORT[date.getMonth()]}`
 }
 
 function formatXTick(dateIso: string, period: WeightPeriod): string {
-  const date = new Date(dateIso)
+  const date = parseLocalDate(dateIso)
   if (period === '3m' || period === 'all') {
     return RU_MONTHS_SHORT[date.getMonth()]
   }

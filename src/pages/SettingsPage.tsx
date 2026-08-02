@@ -7,6 +7,7 @@ import { useSettings, type TargetInput } from '../hooks/useSettings'
 import { useWeightData } from '../hooks/useWeightData'
 import { useMeasurements } from '../hooks/useMeasurements'
 import { SettingsPageSkeleton } from '../components/PageSkeletons'
+import { parseLocalDate } from '../lib/dates'
 import type { DailyActivity, Gender, Goal, Profile } from '../types/database'
 
 const GOAL_OPTIONS: { value: Goal; title: string; description: string; icon: LucideIcon }[] = [
@@ -30,7 +31,9 @@ function parseDecimal(value: string): number {
 }
 
 function formatDayMonthYear(dateIso: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(dateIso))
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(
+    parseLocalDate(dateIso),
+  )
 }
 
 export function SettingsPage() {

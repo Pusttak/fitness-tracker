@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { MUSCLE_GROUPS, MUSCLE_GROUP_LABELS } from '../lib/muscleGroups'
+import { addDays, diffDays, getLocalToday } from '../lib/dates'
 import type { Goal, Workout } from '../types/database'
 
 export type WorkoutAdviceIcon = 'good' | 'warning' | 'info'
@@ -19,12 +20,12 @@ export function getWorkoutAdvice(
   recommendedStrength: number,
   _recommendedCardio: number,
 ): WorkoutAdvice {
-  const now = new Date()
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000)
+  const today = getLocalToday()
+  const weekAgo = addDays(today, -7)
+  const twoWeeksAgo = addDays(today, -14)
 
-  const thisWeek = workouts.filter((w) => new Date(w.date) >= weekAgo)
-  const lastTwoWeeks = workouts.filter((w) => new Date(w.date) >= twoWeeksAgo)
+  const thisWeek = workouts.filter((w) => w.date >= weekAgo)
+  const lastTwoWeeks = workouts.filter((w) => w.date >= twoWeeksAgo)
 
   const strengthThisWeek = thisWeek.filter((w) => w.workout_type === 'strength' || w.workout_type === 'mixed').length
   const cardioThisWeek = thisWeek.filter((w) => w.workout_type === 'cardio' || w.workout_type === 'mixed').length
@@ -36,10 +37,7 @@ export function getWorkoutAdvice(
   let consecutiveDays = 1
   let maxConsecutive = 1
   for (let i = 1; i < sortedDates.length; i++) {
-    const prev = new Date(sortedDates[i - 1])
-    const curr = new Date(sortedDates[i])
-    const diffDays = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
-    if (diffDays === 1) {
+    if (diffDays(sortedDates[i], sortedDates[i - 1]) === 1) {
       consecutiveDays++
       maxConsecutive = Math.max(maxConsecutive, consecutiveDays)
     } else {
@@ -56,12 +54,12 @@ export function getWorkoutAdvice(
   for (const group of MUSCLE_GROUPS) {
     const lastTrained = lastTwoWeeks
       .filter((w) => w.muscle_groups.includes(group))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]
+      .sort((a, b) => b.date.localeCompare(a.date))[0]
 
     if (!lastTrained) {
       recommendations.push(`${MUSCLE_GROUP_LABELS[group]} не тренировались 2+ недели. Включи в ближайшую тренировку.`)
     } else {
-      const daysSince = Math.floor((now.getTime() - new Date(lastTrained.date).getTime()) / (1000 * 60 * 60 * 24))
+      const daysSince = diffDays(today, lastTrained.date)
       if (daysSince > 10) {
         recommendations.push(`${MUSCLE_GROUP_LABELS[group]} не тренировались ${daysSince} дней. Пора включить.`)
       }

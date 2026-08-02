@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useErrorReporter } from './useErrorReporter'
 import { calcBodyFat } from '../lib/calculations'
+import { parseLocalDate } from '../lib/dates'
 import type { Measurement } from '../types/database'
 
 export type MeasurementInput = Omit<Measurement, 'id' | 'user_id' | 'created_at' | 'body_fat_pct'>
@@ -40,7 +41,8 @@ export function useMeasurements() {
 
     setMeasurements((data as Measurement[] | null) ?? [])
     setLoading(false)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchMeasurements()
@@ -51,12 +53,12 @@ export function useMeasurements() {
   const previous = useMemo(() => {
     if (!latest || measurements.length < 2) return null
 
-    const targetTime = new Date(latest.date).getTime() - FOUR_WEEKS_MS
+    const targetTime = parseLocalDate(latest.date).getTime() - FOUR_WEEKS_MS
 
     let best: Measurement | null = null
     let bestDiff = Infinity
     for (const m of measurements.slice(1)) {
-      const diff = Math.abs(new Date(m.date).getTime() - targetTime)
+      const diff = Math.abs(parseLocalDate(m.date).getTime() - targetTime)
       if (diff < bestDiff) {
         bestDiff = diff
         best = m

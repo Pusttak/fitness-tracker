@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   CartesianGrid,
   Line,
@@ -23,10 +23,26 @@ import { useToast } from '../context/ToastContext'
 import { useHideBottomNav } from '../context/LayoutChromeContext'
 import { useMeasurements, type MeasurementInput } from '../hooks/useMeasurements'
 import { useMeasurementsAdvice, type AdviceIcon, type MeasurementsAdvice } from '../hooks/useMeasurementsAdvice'
+import { useWeightData } from '../hooks/useWeightData'
 import { useDirtyForm } from '../hooks/useDirtyForm'
+import { useFormPersist } from '../hooks/useFormPersist'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
-import { BODY_FAT_THRESHOLDS, calcBodyFat, getBodyFatCategory, type BodyFatCategory } from '../lib/calculations'
+import {
+  BODY_FAT_THRESHOLDS,
+  calcBMI,
+  calcBodyFat,
+  calcWHR,
+  calcWHtR,
+  getBMICategory,
+  getBodyFatCategory,
+  getWHRCategory,
+  getWHtRCategory,
+  type BodyFatCategory,
+  type IndicatorCategory,
+  type IndicatorColor,
+} from '../lib/calculations'
 import { isValidNumberInput, parseNumberInput } from '../lib/validation'
+import { diffDays, getLocalToday, parseLocalDate } from '../lib/dates'
 import { MeasurementsPageSkeleton } from '../components/PageSkeletons'
 import { ErrorState } from '../components/ErrorState'
 import type { Gender, Goal, Measurement, Profile } from '../types/database'
@@ -74,15 +90,15 @@ const CATEGORY_BORDER_CLASSES: Record<BodyFatCategory, string> = {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return getLocalToday()
 }
 
 function formatDayMonth(dateIso: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(dateIso))
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(parseLocalDate(dateIso))
 }
 
 function formatShortDate(dateIso: string): string {
-  const date = new Date(dateIso)
+  const date = parseLocalDate(dateIso)
   return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
@@ -110,7 +126,16 @@ export function MeasurementsPage() {
   const { showToast } = useToast()
   const { measurements, latest, previous, loading, error, saveMeasurement, updateMeasurement, retry } =
     useMeasurements()
-  const advice = useMeasurementsAdvice(profile?.goal ?? null, latest, previous, profile?.gender ?? null)
+  const { history: weightHistory } = useWeightData('1w')
+  const latestWeightKg = weightHistory[0]?.entry.weight_kg ?? null
+  const advice = useMeasurementsAdvice(
+    profile?.goal ?? null,
+    latest,
+    previous,
+    profile?.gender ?? null,
+    profile?.height_cm ?? null,
+    latestWeightKg,
+  )
 
   const [view, setView] = useState<'main' | 'form'>('main')
   const [editingMeasurement, setEditingMeasurement] = useState<Measurement | null>(null)
@@ -161,6 +186,16 @@ export function MeasurementsPage() {
           </div>
           <p className="text-sm text-foreground/60">Добавь первый замер для оценки состава тела</p>
         </div>
+      )}
+
+      {latest && (
+        <IndicatorsSection
+          latest={latest}
+          previous={previous}
+          gender={profile.gender}
+          heightCm={profile.height_cm}
+          weightKg={latestWeightKg}
+        />
       )}
 
       <button
@@ -221,9 +256,7 @@ function BodyFatCard({
       ? latest.body_fat_pct - previous.body_fat_pct
       : null
 
-  const weeks = previous
-    ? Math.max(1, Math.round((new Date(latest.date).getTime() - new Date(previous.date).getTime()) / (7 * 86400000)))
-    : null
+  const weeks = previous ? Math.max(1, Math.round(diffDays(latest.date, previous.date) / 7)) : null
 
   return (
     <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-surface p-6">
@@ -256,8 +289,147 @@ function BodyFatCard({
   )
 }
 
+function computeWHR(m: Measurement | null): number | null {
+  if (!m || m.waist_cm === null || m.hips_cm === null) return null
+  return calcWHR(m.waist_cm, m.hips_cm)
+}
+
+function computeWHtR(m: Measurement | null, heightCm: number): number | null {
+  if (!m || m.waist_cm === null) return null
+  return calcWHtR(m.waist_cm, heightCm)
+}
+
+const INDICATOR_BAR_CLASSES: Record<IndicatorColor, string> = {
+  green: 'bg-accent',
+  yellow: 'bg-amber-400',
+  red: 'bg-red-400',
+}
+
+const INDICATOR_TEXT_CLASSES: Record<IndicatorColor, string> = {
+  green: 'text-accent',
+  yellow: 'text-amber-400',
+  red: 'text-red-400',
+}
+
+function IndicatorsSection({
+  latest,
+  previous,
+  gender,
+  heightCm,
+  weightKg,
+}: {
+  latest: Measurement
+  previous: Measurement | null
+  gender: Gender
+  heightCm: number
+  weightKg: number | null
+}) {
+  const whr = computeWHR(latest)
+  const whtr = computeWHtR(latest, heightCm)
+  const bmi = weightKg !== null ? calcBMI(weightKg, heightCm) : null
+
+  const prevWhr = computeWHR(previous)
+  const prevWhtr = computeWHtR(previous, heightCm)
+
+  const deltaParts: { key: string; label: string; current: number; previous: number }[] = []
+  if (whr !== null && prevWhr !== null) deltaParts.push({ key: 'whr', label: 'WHR', current: whr, previous: prevWhr })
+  if (whtr !== null && prevWhtr !== null) deltaParts.push({ key: 'whtr', label: 'WHtR', current: whtr, previous: prevWhtr })
+
+  return (
+    <div className="flex flex-col gap-2">
+      <h2 className="text-sm font-medium text-foreground/70">Индикаторы здоровья</h2>
+      <div className="grid grid-cols-3 gap-2">
+        <IndicatorCard
+          title="Талия / Бёдра"
+          value={whr}
+          decimals={2}
+          category={whr !== null ? getWHRCategory(whr, gender) : null}
+          missingText="Нужны бёдра"
+        />
+        <IndicatorCard
+          title="Талия / Рост"
+          value={whtr}
+          decimals={2}
+          category={whtr !== null ? getWHtRCategory(whtr) : null}
+          missingText="Нужна талия"
+        />
+        <IndicatorCard
+          title="ИМТ"
+          value={bmi}
+          decimals={1}
+          category={bmi !== null ? getBMICategory(bmi) : null}
+          missingText="Нужен вес"
+        />
+      </div>
+
+      {deltaParts.length > 0 && (
+        <p className="text-center text-xs text-foreground/50">
+          {deltaParts.map((part, i) => (
+            <span key={part.key}>
+              {i > 0 && '   '}
+              <IndicatorDeltaText label={part.label} current={part.current} previous={part.previous} decimals={2} />
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function IndicatorCard({
+  title,
+  value,
+  decimals,
+  category,
+  missingText,
+}: {
+  title: string
+  value: number | null
+  decimals: number
+  category: IndicatorCategory | null
+  missingText: string
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-surface p-3">
+      <div
+        className={`absolute inset-x-0 top-0 h-[3px] ${category ? INDICATOR_BAR_CLASSES[category.color] : 'bg-overlay/10'}`}
+      />
+      <p className="truncate text-xs text-foreground/50">{title}</p>
+      <p className="pt-1 text-xl font-semibold text-foreground">{value !== null ? value.toFixed(decimals) : '—'}</p>
+      <p className={`text-xs font-medium ${category ? INDICATOR_TEXT_CLASSES[category.color] : 'text-foreground/40'}`}>
+        {category ? category.label : missingText}
+      </p>
+    </div>
+  )
+}
+
+function IndicatorDeltaText({
+  label,
+  current,
+  previous,
+  decimals,
+}: {
+  label: string
+  current: number
+  previous: number
+  decimals: number
+}) {
+  const delta = current - previous
+  const deltaClass = delta === 0 ? 'text-foreground/50' : delta < 0 ? 'text-accent' : 'text-red-400'
+
+  return (
+    <span className="text-foreground/70">
+      {label}: {previous.toFixed(decimals)} → {current.toFixed(decimals)}{' '}
+      <span className={deltaClass}>
+        ({delta > 0 ? '+' : ''}
+        {delta.toFixed(decimals)})
+      </span>
+    </span>
+  )
+}
+
 function ReminderBanner({ latest }: { latest: Measurement }) {
-  const days = Math.floor((Date.now() - new Date(latest.date).getTime()) / 86400000)
+  const days = diffDays(getLocalToday(), latest.date)
 
   if (days > 7) {
     return (
@@ -609,6 +781,28 @@ function AdviceCard({ advice }: { advice: MeasurementsAdvice }) {
 const measurementInputClasses =
   'min-h-[44px] w-full rounded-xl border border-border bg-surface px-4 text-foreground outline-none focus:border-accent'
 
+interface MeasurementDraft {
+  neck: string
+  chest: string
+  waist: string
+  hips: string
+  bicepLeft: string
+  bicepRight: string
+  thighLeft: string
+  thighRight: string
+}
+
+const MEASUREMENT_DRAFT_DEFAULT: MeasurementDraft = {
+  neck: '',
+  chest: '',
+  waist: '',
+  hips: '',
+  bicepLeft: '',
+  bicepRight: '',
+  thighLeft: '',
+  thighRight: '',
+}
+
 interface MeasurementFormProps {
   profile: Profile
   latest: Measurement | null
@@ -618,21 +812,47 @@ interface MeasurementFormProps {
 }
 
 function MeasurementForm({ profile, latest, editing, onCancel, onSave }: MeasurementFormProps) {
+  const isNew = !editing
+  const {
+    values: measurementDraft,
+    setValues: setMeasurementDraft,
+    clearPersisted: clearMeasurementDraft,
+  } = useFormPersist<MeasurementDraft>('new-measurement-form', MEASUREMENT_DRAFT_DEFAULT)
+
   const [date, setDate] = useState(() => editing?.date ?? todayIso())
-  const [neck, setNeck] = useState(editing?.neck_cm != null ? String(editing.neck_cm) : '')
-  const [chest, setChest] = useState(editing?.chest_cm != null ? String(editing.chest_cm) : '')
-  const [waist, setWaist] = useState(editing?.waist_cm != null ? String(editing.waist_cm) : '')
-  const [hips, setHips] = useState(editing?.hips_cm != null ? String(editing.hips_cm) : '')
-  const [bicepLeft, setBicepLeft] = useState(editing?.bicep_left_cm != null ? String(editing.bicep_left_cm) : '')
-  const [bicepRight, setBicepRight] = useState(editing?.bicep_right_cm != null ? String(editing.bicep_right_cm) : '')
-  const [thighLeft, setThighLeft] = useState(editing?.thigh_left_cm != null ? String(editing.thigh_left_cm) : '')
-  const [thighRight, setThighRight] = useState(
-    editing?.thigh_right_cm != null ? String(editing.thigh_right_cm) : '',
+  const [neck, setNeck] = useState(() =>
+    editing?.neck_cm != null ? String(editing.neck_cm) : isNew ? measurementDraft.neck : '',
+  )
+  const [chest, setChest] = useState(() =>
+    editing?.chest_cm != null ? String(editing.chest_cm) : isNew ? measurementDraft.chest : '',
+  )
+  const [waist, setWaist] = useState(() =>
+    editing?.waist_cm != null ? String(editing.waist_cm) : isNew ? measurementDraft.waist : '',
+  )
+  const [hips, setHips] = useState(() =>
+    editing?.hips_cm != null ? String(editing.hips_cm) : isNew ? measurementDraft.hips : '',
+  )
+  const [bicepLeft, setBicepLeft] = useState(() =>
+    editing?.bicep_left_cm != null ? String(editing.bicep_left_cm) : isNew ? measurementDraft.bicepLeft : '',
+  )
+  const [bicepRight, setBicepRight] = useState(() =>
+    editing?.bicep_right_cm != null ? String(editing.bicep_right_cm) : isNew ? measurementDraft.bicepRight : '',
+  )
+  const [thighLeft, setThighLeft] = useState(() =>
+    editing?.thigh_left_cm != null ? String(editing.thigh_left_cm) : isNew ? measurementDraft.thighLeft : '',
+  )
+  const [thighRight, setThighRight] = useState(() =>
+    editing?.thigh_right_cm != null ? String(editing.thigh_right_cm) : isNew ? measurementDraft.thighRight : '',
   )
   const [touched, setTouched] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const measurementForm = useDirtyForm()
+
+  useEffect(() => {
+    if (!isNew) return
+    setMeasurementDraft({ neck, chest, waist, hips, bicepLeft, bicepRight, thighLeft, thighRight })
+  }, [isNew, neck, chest, waist, hips, bicepLeft, bicepRight, thighLeft, thighRight, setMeasurementDraft])
 
   function parseField(v: string): number | null {
     if (v.trim() === '') return null
@@ -642,15 +862,69 @@ function MeasurementForm({ profile, latest, editing, onCancel, onSave }: Measure
 
   const fieldValid = (v: string) => v.trim() === '' || isValidNumberInput(v, { min: 10, max: 200, oneDecimal: true })
 
-  const fields: { label: string; value: string; onChange: (v: string) => void; placeholder: number | null }[] = [
-    { label: 'Шея', value: neck, onChange: setNeck, placeholder: latest?.neck_cm ?? null },
-    { label: 'Грудь', value: chest, onChange: setChest, placeholder: latest?.chest_cm ?? null },
-    { label: 'Талия', value: waist, onChange: setWaist, placeholder: latest?.waist_cm ?? null },
-    { label: 'Бёдра', value: hips, onChange: setHips, placeholder: latest?.hips_cm ?? null },
-    { label: 'Бицепс Л', value: bicepLeft, onChange: setBicepLeft, placeholder: latest?.bicep_left_cm ?? null },
-    { label: 'Бицепс П', value: bicepRight, onChange: setBicepRight, placeholder: latest?.bicep_right_cm ?? null },
-    { label: 'Бедро Л', value: thighLeft, onChange: setThighLeft, placeholder: latest?.thigh_left_cm ?? null },
-    { label: 'Бедро П', value: thighRight, onChange: setThighRight, placeholder: latest?.thigh_right_cm ?? null },
+  const fields: {
+    label: string
+    value: string
+    onChange: (v: string) => void
+    placeholder: number | null
+    hint: string
+  }[] = [
+    {
+      label: 'Шея',
+      value: neck,
+      onChange: setNeck,
+      placeholder: latest?.neck_cm ?? null,
+      hint: 'Под кадыком, в самом узком месте',
+    },
+    {
+      label: 'Грудь',
+      value: chest,
+      onChange: setChest,
+      placeholder: latest?.chest_cm ?? null,
+      hint: 'На уровне сосков, руки опущены',
+    },
+    {
+      label: 'Талия (на уровне пупка)',
+      value: waist,
+      onChange: setWaist,
+      placeholder: latest?.waist_cm ?? null,
+      hint: 'Стоя, расслабив живот, лента горизонтально',
+    },
+    {
+      label: 'Бёдра',
+      value: hips,
+      onChange: setHips,
+      placeholder: latest?.hips_cm ?? null,
+      hint: 'В самом широком месте ягодиц',
+    },
+    {
+      label: 'Бицепс Л',
+      value: bicepLeft,
+      onChange: setBicepLeft,
+      placeholder: latest?.bicep_left_cm ?? null,
+      hint: 'В напряжённом состоянии, в самом толстом месте',
+    },
+    {
+      label: 'Бицепс П',
+      value: bicepRight,
+      onChange: setBicepRight,
+      placeholder: latest?.bicep_right_cm ?? null,
+      hint: 'В напряжённом состоянии, в самом толстом месте',
+    },
+    {
+      label: 'Бедро Л',
+      value: thighLeft,
+      onChange: setThighLeft,
+      placeholder: latest?.thigh_left_cm ?? null,
+      hint: 'Стоя, в самом толстом месте',
+    },
+    {
+      label: 'Бедро П',
+      value: thighRight,
+      onChange: setThighRight,
+      placeholder: latest?.thigh_right_cm ?? null,
+      hint: 'Стоя, в самом толстом месте',
+    },
   ]
 
   const anyFilled = fields.some((f) => f.value.trim() !== '')
@@ -689,6 +963,7 @@ function MeasurementForm({ profile, latest, editing, onCancel, onSave }: Measure
         thigh_right_cm: parseField(thighRight),
       })
       measurementForm.markClean()
+      clearMeasurementDraft()
     } catch {
       setError('Не удалось сохранить замер. Попробуйте ещё раз.')
       setSubmitting(false)
@@ -752,6 +1027,7 @@ function MeasurementForm({ profile, latest, editing, onCancel, onSave }: Measure
                 </span>
               </div>
               {showFieldError && <p className="text-xs text-red-400">10–200 см, максимум 1 знак после запятой</p>}
+              <p className="text-xs text-foreground/40">{f.hint}</p>
             </div>
           )
         })}

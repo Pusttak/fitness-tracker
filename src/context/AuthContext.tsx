@@ -1,7 +1,9 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react'
@@ -37,12 +39,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // TOKEN_REFRESHED — фоновое обновление токена (например, при возврате на вкладку
+      // браузера). Supabase-клиент уже обновил токен внутри себя, а обновление React-состояния
+      // здесь создаёт новый объект session/user и роняет форму AuthContext.Provider, что
+      // ре-рендерит и размонтирует всё дерево (см. ProtectedRoute) — теряя состояние открытых форм.
+      if (event === 'TOKEN_REFRESHED') {
+        return
+      }
+
       setSession(newSession)
       setLoading(false)
     })
 
     return () => listener.subscription.unsubscribe()
+  }, [])
+
+  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle()
+
+    return (data as Profile | null) ?? null
   }, [])
 
   useEffect(() => {
@@ -52,10 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    const userId = user.id
     let cancelled = false
     setProfileLoading(true)
 
-    fetchProfile(user.id).then((data) => {
+    fetchProfile(userId).then((data) => {
       if (cancelled) return
       setProfile(data)
       setProfileLoading(false)
@@ -64,49 +85,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [user])
+    // Зависим от user.id (строка), а не от объекта user — иначе эффект перезапускается
+    // при каждом обновлении session (например, TOKEN_REFRESHED даёт новый объект user
+    // с тем же id), и профиль лишний раз перезагружается.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, fetchProfile])
 
-  async function fetchProfile(userId: string): Promise<Profile | null> {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-
-    return (data as Profile | null) ?? null
-  }
-
-  async function refreshProfile() {
+  const refreshProfile = useCallback(async () => {
     if (!user) return
     const data = await fetchProfile(user.id)
     setProfile(data)
-  }
+  }, [user, fetchProfile])
 
-  async function signIn(email: string, password: string) {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return { error: error?.message ?? null }
-  }
+  }, [])
 
-  async function signUp(email: string, password: string) {
+  const signUp = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signUp({ email, password })
     return { error: error?.message ?? null }
-  }
+  }, [])
 
-  async function signOut() {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut()
-  }
+  }, [])
 
-  const value: AuthContextValue = {
-    user,
-    session,
-    loading,
-    profile,
-    profileLoading,
-    signIn,
-    signUp,
-    signOut,
-    refreshProfile,
-  }
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      session,
+      loading,
+      profile,
+      profileLoading,
+      signIn,
+      signUp,
+      signOut,
+      refreshProfile,
+    }),
+    [user, session, loading, profile, profileLoading, signIn, signUp, signOut, refreshProfile],
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

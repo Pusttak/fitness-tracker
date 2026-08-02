@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { calcAge, calcBMR, calcTDEE } from '../lib/calculations'
+import { addDays, diffDays, getLocalToday, parseLocalDate } from '../lib/dates'
 import { generateWeeklyReport } from '../lib/weeklyReport'
 import { MUSCLE_GROUPS, type MuscleGroup } from '../lib/muscleGroups'
 import type { Measurement, WeightLog, Workout } from '../types/database'
@@ -44,9 +45,7 @@ export interface WeeklyReport {
 }
 
 function isoDaysAgo(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - days)
-  return d.toISOString().slice(0, 10)
+  return addDays(getLocalToday(), -days)
 }
 
 function periodCutoff(period: ProgressPeriod): string {
@@ -54,16 +53,13 @@ function periodCutoff(period: ProgressPeriod): string {
 }
 
 function getLastCompletedWeekRange(): { start: string; end: string } {
-  const now = new Date()
-  const day = now.getDay()
+  const today = getLocalToday()
+  const day = parseLocalDate(today).getDay()
   const diffToMonday = day === 0 ? -6 : 1 - day
-  const thisMonday = new Date(now)
-  thisMonday.setDate(thisMonday.getDate() + diffToMonday)
-  const lastSunday = new Date(thisMonday)
-  lastSunday.setDate(thisMonday.getDate() - 1)
-  const lastMonday = new Date(lastSunday)
-  lastMonday.setDate(lastSunday.getDate() - 6)
-  return { start: lastMonday.toISOString().slice(0, 10), end: lastSunday.toISOString().slice(0, 10) }
+  const thisMonday = addDays(today, diffToMonday)
+  const lastSunday = addDays(thisMonday, -1)
+  const lastMonday = addDays(lastSunday, -6)
+  return { start: lastMonday, end: lastSunday }
 }
 
 interface MealLogRow {
@@ -137,7 +133,8 @@ export function useProgressData(period: ProgressPeriod) {
     setMeasurements((measurementRes.data as Measurement[] | null) ?? [])
 
     setLoading(false)
-  }, [user])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id])
 
   useEffect(() => {
     fetchAll()
@@ -185,10 +182,7 @@ export function useProgressData(period: ProgressPeriod) {
     if (allDates.length === 0) return empty
 
     const earliest = allDates.reduce((min, d) => (d < min ? d : min), allDates[0])
-    const daysTracked = Math.min(
-      FETCH_WINDOW_DAYS,
-      Math.floor((Date.now() - new Date(earliest).getTime()) / 86400000),
-    )
+    const daysTracked = Math.min(FETCH_WINDOW_DAYS, diffDays(getLocalToday(), earliest))
 
     const cutoff21 = isoDaysAgo(20)
     const weights21 = weights.filter((w) => w.date >= cutoff21)

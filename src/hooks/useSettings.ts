@@ -1,6 +1,7 @@
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useErrorReporter } from './useErrorReporter'
+import { getLocalToday } from '../lib/dates'
 import { calcAge, calcBMR, calcTDEE, calcTargets, calcTrainingPlan, type Targets, type TrainingPlan } from '../lib/calculations'
 import type { DailyActivity, Gender, Goal, Profile } from '../types/database'
 
@@ -128,7 +129,7 @@ export function useSettings() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `fittracker-export-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `fittracker-export-${getLocalToday()}.json`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)

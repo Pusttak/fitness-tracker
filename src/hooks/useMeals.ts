@@ -118,7 +118,8 @@ export function useMeals(date: string) {
 
     setMeals(grouped)
     setLoading(false)
-  }, [user, date])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id, date])
 
   useEffect(() => {
     fetchMeals()

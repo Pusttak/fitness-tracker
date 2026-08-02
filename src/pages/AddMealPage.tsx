@@ -7,27 +7,39 @@ import { supabase } from '../lib/supabase'
 import { useProducts } from '../hooks/useProducts'
 import { useRecipes } from '../hooks/useRecipes'
 import { useDirtyForm } from '../hooks/useDirtyForm'
+import { useFormPersist } from '../hooks/useFormPersist'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
 import { MEAL_TYPES, MEAL_TYPE_LABELS } from '../lib/mealTypes'
 import { isValidNumberInput } from '../lib/validation'
+import { getLocalToday, parseLocalDate } from '../lib/dates'
+import { COMMON_PRODUCTS, PRODUCT_CATEGORIES, type CommonProduct } from '../data/commonProducts'
 import type { MealType, Product, Recipe } from '../types/database'
 
-type ContentTab = 'products' | 'recipes' | 'quick'
-type SubView = 'list' | 'productGrams' | 'newProduct' | 'recipeGrams'
+type ContentTab = 'products' | 'catalog' | 'recipes' | 'quick'
+type SubView = 'list' | 'productGrams' | 'newProduct' | 'recipeGrams' | 'catalogGrams'
 
 const QUICK_PORTIONS = [50, 100, 150, 200, 250, 300]
 const QUICK_PIECES = [0.5, 1, 1.5, 2, 3]
 
 type GramsMode = 'grams' | 'pieces'
 
+interface AddMealDraft {
+  mealType: MealType
+}
+
+const ADD_MEAL_DRAFT_DEFAULT: AddMealDraft = {
+  mealType: 'breakfast',
+}
+
 const CONTENT_TABS: { value: ContentTab; label: string }[] = [
-  { value: 'products', label: 'Продукты' },
+  { value: 'products', label: 'Мои' },
+  { value: 'catalog', label: 'Каталог' },
   { value: 'recipes', label: 'Рецепты' },
   { value: 'quick', label: 'Быстрый ввод' },
 ]
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  return getLocalToday()
 }
 
 function parseDecimal(value: string): number {
@@ -35,7 +47,7 @@ function parseDecimal(value: string): number {
 }
 
 function formatDayMonth(dateIso: string): string {
-  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(dateIso))
+  return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(parseLocalDate(dateIso))
 }
 
 const fieldInputClasses =
@@ -57,9 +69,15 @@ export function AddMealPage() {
   const [searchParams] = useSearchParams()
   const navState = (location.state as NavState | null) ?? null
 
+  const {
+    values: addMealDraft,
+    setValues: setAddMealDraft,
+    clearPersisted: clearAddMealDraft,
+  } = useFormPersist<AddMealDraft>('add-meal-form', ADD_MEAL_DRAFT_DEFAULT)
+
   const [date] = useState(() => navState?.date ?? searchParams.get('date') ?? todayIso())
   const [mealType, setMealType] = useState<MealType>(
-    () => navState?.mealType ?? (searchParams.get('type') as MealType | null) ?? 'breakfast',
+    () => navState?.mealType ?? (searchParams.get('type') as MealType | null) ?? addMealDraft.mealType,
   )
 
   const [contentTab, setContentTab] = useState<ContentTab>(navState?.initialTab ?? 'products')
@@ -74,6 +92,13 @@ export function AddMealPage() {
   const [gramsMode, setGramsMode] = useState<GramsMode>('grams')
   const [piecesInput, setPiecesInput] = useState('1')
 
+  // Персистим только тип приёма пищи — выбранный продукт никогда не восстанавливаем
+  // из sessionStorage, иначе повторное открытие «+ Добавить» сразу показывает
+  // карточку последнего выбранного продукта вместо экрана выбора.
+  useEffect(() => {
+    setAddMealDraft({ mealType })
+  }, [mealType, setAddMealDraft])
+
   const [newName, setNewName] = useState('')
   const [newCalories, setNewCalories] = useState('')
   const [newProtein, setNewProtein] = useState('')
@@ -81,12 +106,31 @@ export function AddMealPage() {
   const [newCarbs, setNewCarbs] = useState('')
   const [newFavorite, setNewFavorite] = useState(false)
 
-  const { searchResults, favorites, recent, setSearch: setProductSearch, addProduct } = useProducts()
+  const { products, searchResults, favorites, recent, setSearch: setProductSearch, addProduct } = useProducts()
 
   useEffect(() => {
     const timeout = setTimeout(() => setProductSearch(productQuery), 300)
     return () => clearTimeout(timeout)
   }, [productQuery, setProductSearch])
+
+  // Каталог
+  const [catalogQuery, setCatalogQuery] = useState('')
+  const [catalogCategory, setCatalogCategory] = useState<string | null>(null)
+  const [selectedCatalogProduct, setSelectedCatalogProduct] = useState<CommonProduct | null>(null)
+  const [catalogGramsInput, setCatalogGramsInput] = useState('100')
+  const [catalogGramsMode, setCatalogGramsMode] = useState<GramsMode>('grams')
+  const [catalogPiecesInput, setCatalogPiecesInput] = useState('1')
+
+  const catalogSearchResults = useMemo(() => {
+    const query = catalogQuery.trim().toLowerCase()
+    if (!query) return []
+    return COMMON_PRODUCTS.filter((p) => p.name.toLowerCase().includes(query))
+  }, [catalogQuery])
+
+  const categoryProducts = useMemo(
+    () => COMMON_PRODUCTS.filter((p) => p.category === catalogCategory),
+    [catalogCategory],
+  )
 
   // Рецепты
   const [recipeQuery, setRecipeQuery] = useState('')
@@ -164,6 +208,29 @@ export function AddMealPage() {
     }
   }, [selectedProduct, gramsValid, grams])
 
+  const catalogPieceWeight = selectedCatalogProduct?.piece_weight_g ?? null
+  const catalogPiecesValid = isValidNumberInput(catalogPiecesInput, { min: 0.1, max: 100 })
+  const catalogPiecesValue = parseDecimal(catalogPiecesInput)
+
+  const catalogGrams =
+    catalogGramsMode === 'pieces' && catalogPieceWeight
+      ? catalogPiecesValue * catalogPieceWeight
+      : parseDecimal(catalogGramsInput)
+  const catalogGramsValid =
+    catalogGramsMode === 'pieces'
+      ? catalogPieceWeight !== null && catalogPiecesValid
+      : isValidNumberInput(catalogGramsInput, { min: 1, max: 5000 })
+
+  const catalogMacros = useMemo(() => {
+    if (!selectedCatalogProduct || !catalogGramsValid) return null
+    return {
+      calories: Math.round((selectedCatalogProduct.calories_per_100g * catalogGrams) / 100),
+      protein: Math.round((selectedCatalogProduct.protein_per_100g * catalogGrams) / 100),
+      fat: Math.round((selectedCatalogProduct.fat_per_100g * catalogGrams) / 100),
+      carbs: Math.round((selectedCatalogProduct.carbs_per_100g * catalogGrams) / 100),
+    }
+  }, [selectedCatalogProduct, catalogGramsValid, catalogGrams])
+
   const newProductValid =
     newName.trim().length > 0 &&
     [newCalories, newProtein, newFat, newCarbs].every((v) => isValidNumberInput(v, { min: 0, max: 1000 }))
@@ -192,6 +259,8 @@ export function AddMealPage() {
     setSubView('list')
     setSelectedProduct(null)
     setSelectedRecipe(null)
+    setSelectedCatalogProduct(null)
+    setCatalogCategory(null)
     setError(null)
   }
 
@@ -202,6 +271,15 @@ export function AddMealPage() {
     setGramsMode(product.piece_weight_g ? 'pieces' : 'grams')
     setError(null)
     setSubView('productGrams')
+  }
+
+  function handleSelectCatalogProduct(product: CommonProduct) {
+    setSelectedCatalogProduct(product)
+    setCatalogGramsInput('100')
+    setCatalogPiecesInput('1')
+    setCatalogGramsMode(product.piece_weight_g ? 'pieces' : 'grams')
+    setError(null)
+    setSubView('catalogGrams')
   }
 
   function handleSelectRecipe(recipe: Recipe) {
@@ -216,6 +294,7 @@ export function AddMealPage() {
       setSubView('list')
       setSelectedProduct(null)
       setSelectedRecipe(null)
+      setSelectedCatalogProduct(null)
       setError(null)
       return
     }
@@ -224,6 +303,29 @@ export function AddMealPage() {
     } else {
       navigate(-1)
     }
+  }
+
+  function handleOpenCatalogFromProducts() {
+    setCatalogQuery(productQuery)
+    setContentTab('catalog')
+    setCatalogCategory(null)
+    setError(null)
+  }
+
+  async function findOrCreatePersonalProduct(commonProduct: CommonProduct): Promise<Product> {
+    const existing = products.find((p) => p.name === commonProduct.name)
+    if (existing) return existing
+
+    return addProduct({
+      name: commonProduct.name,
+      calories_per_100g: commonProduct.calories_per_100g,
+      protein_per_100g: commonProduct.protein_per_100g,
+      fat_per_100g: commonProduct.fat_per_100g,
+      carbs_per_100g: commonProduct.carbs_per_100g,
+      is_favorite: false,
+      piece_weight_g: commonProduct.piece_weight_g ?? null,
+      serving_name: commonProduct.serving_name ?? 'шт',
+    })
   }
 
   function handleOpenNewProduct() {
@@ -317,7 +419,49 @@ export function AddMealPage() {
     }
 
     showToast('Сохранено ✓')
+    clearAddMealDraft()
     navigate(`/?date=${date}`, { replace: true })
+  }
+
+  async function handleAddCatalogProductToMeal() {
+    if (!selectedCatalogProduct || !catalogMacros || !catalogGramsValid) return
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const product = await findOrCreatePersonalProduct(selectedCatalogProduct)
+
+      const mealId = await findOrCreateMealId()
+      if (!mealId) {
+        setError('Не удалось сохранить приём пищи. Попробуйте ещё раз.')
+        setSubmitting(false)
+        return
+      }
+
+      const { error: itemError } = await supabase.from('meal_items').insert({
+        meal_id: mealId,
+        product_id: product.id,
+        recipe_id: null,
+        weight_g: catalogGrams,
+        calories: catalogMacros.calories,
+        protein: catalogMacros.protein,
+        fat: catalogMacros.fat,
+        carbs: catalogMacros.carbs,
+      })
+
+      if (itemError) {
+        setError('Не удалось добавить продукт. Попробуйте ещё раз.')
+        setSubmitting(false)
+        return
+      }
+
+      showToast('Сохранено ✓')
+      clearAddMealDraft()
+      navigate(`/?date=${date}`, { replace: true })
+    } catch {
+      setError('Не удалось добавить продукт. Попробуйте ещё раз.')
+      setSubmitting(false)
+    }
   }
 
   async function handleAddRecipeToMeal() {
@@ -456,7 +600,16 @@ export function AddMealPage() {
           {productQuery.trim() ? (
             <div className="flex flex-col gap-2">
               {searchResults.length === 0 ? (
-                <p className="py-4 text-center text-sm text-foreground/50">Ничего не найдено</p>
+                <div className="flex flex-col items-center gap-2 py-4">
+                  <p className="text-center text-sm text-foreground/50">Ничего не найдено</p>
+                  <button
+                    type="button"
+                    onClick={handleOpenCatalogFromProducts}
+                    className="text-sm font-medium text-accent"
+                  >
+                    Не нашёл? Посмотри в Каталоге →
+                  </button>
+                </div>
               ) : (
                 searchResults.map((p) => (
                   <ProductRow key={p.id} product={p} onSelect={() => handleSelectProduct(p)} />
@@ -687,6 +840,184 @@ export function AddMealPage() {
         </div>
       )}
 
+      {contentTab === 'catalog' && subView === 'list' && (
+        <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
+          <div className="relative">
+            <Search
+              size={18}
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-foreground/40"
+            />
+            <input
+              autoFocus
+              type="text"
+              value={catalogQuery}
+              onChange={(e) => setCatalogQuery(e.target.value)}
+              placeholder="Поиск в каталоге"
+              className="min-h-[48px] w-full rounded-xl border border-border bg-surface pl-11 pr-4 text-foreground outline-none focus:border-accent"
+            />
+          </div>
+
+          {catalogQuery.trim() ? (
+            <div className="flex flex-col gap-2">
+              {catalogSearchResults.length === 0 ? (
+                <p className="py-4 text-center text-sm text-foreground/50">Ничего не найдено</p>
+              ) : (
+                catalogSearchResults.map((p) => (
+                  <CatalogProductRow key={p.name} product={p} onSelect={() => handleSelectCatalogProduct(p)} />
+                ))
+              )}
+            </div>
+          ) : catalogCategory === null ? (
+            <div className="grid grid-cols-2 gap-3">
+              {PRODUCT_CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => setCatalogCategory(cat.id)}
+                  className="flex flex-col items-center gap-2 rounded-xl border border-border bg-surface p-4"
+                >
+                  <span className="text-3xl">{cat.icon}</span>
+                  <span className="text-center text-sm font-medium text-foreground">{cat.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setCatalogCategory(null)}
+                className="flex items-center gap-1 self-start text-sm font-medium text-accent"
+              >
+                <ChevronLeft size={16} /> Назад к категориям
+              </button>
+              {categoryProducts.map((p) => (
+                <CatalogProductRow key={p.name} product={p} onSelect={() => handleSelectCatalogProduct(p)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {contentTab === 'catalog' && subView === 'catalogGrams' && selectedCatalogProduct && (
+        <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
+          <p className="text-lg font-semibold text-foreground">{selectedCatalogProduct.name}</p>
+
+          {catalogPieceWeight && (
+            <div className="flex gap-1 rounded-xl bg-surface p-1">
+              <button
+                type="button"
+                onClick={() => setCatalogGramsMode('grams')}
+                className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+                  catalogGramsMode === 'grams' ? 'bg-accent text-background' : 'text-foreground/60'
+                }`}
+              >
+                Граммы
+              </button>
+              <button
+                type="button"
+                onClick={() => setCatalogGramsMode('pieces')}
+                className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+                  catalogGramsMode === 'pieces' ? 'bg-accent text-background' : 'text-foreground/60'
+                }`}
+              >
+                {selectedCatalogProduct.serving_name || 'Штуки'}
+              </button>
+            </div>
+          )}
+
+          {catalogGramsMode === 'pieces' && catalogPieceWeight ? (
+            <>
+              <div className="relative">
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="decimal"
+                  value={catalogPiecesInput}
+                  onChange={(e) => setCatalogPiecesInput(e.target.value)}
+                  className="min-h-[52px] w-full rounded-xl border border-border bg-surface px-4 pr-16 text-lg text-foreground outline-none focus:border-accent"
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-foreground/50">
+                  {selectedCatalogProduct.serving_name || 'шт'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-5 gap-2">
+                {QUICK_PIECES.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setCatalogPiecesInput(String(p))}
+                    className={`min-h-[44px] rounded-xl border text-sm font-medium transition ${
+                      catalogPiecesInput === String(p)
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border bg-surface text-foreground'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="relative">
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="decimal"
+                  value={catalogGramsInput}
+                  onChange={(e) => setCatalogGramsInput(e.target.value)}
+                  className="min-h-[52px] w-full rounded-xl border border-border bg-surface px-4 pr-12 text-lg text-foreground outline-none focus:border-accent"
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-foreground/50">
+                  г
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {QUICK_PORTIONS.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setCatalogGramsInput(String(g))}
+                    className={`min-h-[44px] rounded-xl border text-sm font-medium transition ${
+                      catalogGramsInput === String(g)
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border bg-surface text-foreground'
+                    }`}
+                  >
+                    {g}г
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {catalogMacros && (
+            <div className="rounded-2xl border border-accent/30 bg-accent/10 p-4 text-center">
+              <p className="text-sm text-foreground/80">
+                {catalogGramsMode === 'pieces' && catalogPieceWeight
+                  ? `${catalogPiecesValue} ${selectedCatalogProduct.serving_name || 'шт'} (${catalogGrams}г)`
+                  : `${catalogGrams}г`}{' '}
+                → <span className="font-semibold text-foreground">{catalogMacros.calories} ккал</span> · Б:{' '}
+                {catalogMacros.protein}г · Ж: {catalogMacros.fat}г · У: {catalogMacros.carbs}г
+              </p>
+            </div>
+          )}
+
+          {error && <p className="text-center text-sm text-red-400">{error}</p>}
+
+          <button
+            type="button"
+            onClick={handleAddCatalogProductToMeal}
+            disabled={!catalogGramsValid || submitting}
+            className="min-h-[52px] rounded-xl bg-accent font-medium text-background transition hover:bg-accent-hover disabled:opacity-40"
+          >
+            {submitting ? 'Добавляем…' : 'Добавить'}
+          </button>
+        </div>
+      )}
+
       {contentTab === 'recipes' && subView === 'list' && (
         <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
           <div className="relative">
@@ -866,6 +1197,28 @@ function ProductRow({ product, onSelect }: { product: Product; onSelect: () => v
       <span className="text-xs text-foreground/50">
         {product.calories_per_100g} ккал · Б: {product.protein_per_100g}г · Ж: {product.fat_per_100g}г · У:{' '}
         {product.carbs_per_100g}г <span className="text-foreground/30">на 100г</span>
+      </span>
+    </button>
+  )
+}
+
+function CatalogProductRow({ product, onSelect }: { product: CommonProduct; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex w-full flex-col gap-0.5 rounded-xl border border-border bg-surface p-3 text-left"
+    >
+      <span className="text-sm font-medium text-foreground">{product.name}</span>
+      <span className="text-xs text-foreground/50">
+        {product.calories_per_100g} ккал · Б: {product.protein_per_100g}г · Ж: {product.fat_per_100g}г · У:{' '}
+        {product.carbs_per_100g}г <span className="text-foreground/30">на 100г</span>
+        {product.piece_weight_g && (
+          <span className="text-foreground/30">
+            {' '}
+            · 1 {product.serving_name ?? 'шт'} = {product.piece_weight_g}г
+          </span>
+        )}
       </span>
     </button>
   )

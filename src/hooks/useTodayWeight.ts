@@ -27,7 +27,8 @@ export function useTodayWeight(date: string) {
 
     setWeight((data as WeightLog | null) ?? null)
     setLoading(false)
-  }, [user, date])
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- зависим от user?.id (примитив), а не от объекта user
+  }, [user?.id, date])
 
   useEffect(() => {
     fetchWeight()
