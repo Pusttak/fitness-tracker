@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/fitness-tracker/', // название репозитория на GitHub
   plugins: [
     react(),
     VitePWA({
@@ -16,8 +17,8 @@ export default defineConfig({
         theme_color: '#0F172A',
         background_color: '#0F172A',
         display: 'standalone',
-        start_url: '/',
-        scope: '/',
+        start_url: '/fitness-tracker/',
+        scope: '/fitness-tracker/',
         lang: 'ru',
         icons: [
           {
