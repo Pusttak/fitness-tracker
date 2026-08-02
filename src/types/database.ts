@@ -64,6 +64,8 @@ export interface Product {
   fat_per_100g: number
   carbs_per_100g: number
   is_favorite: boolean
+  piece_weight_g: number | null
+  serving_name: string
   created_at: string
 }
 

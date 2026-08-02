@@ -17,8 +17,24 @@ type Tab = 'products' | 'recipes'
 type ProductFilter = 'all' | 'favorites'
 type ProductView = 'list' | 'form'
 
+type UnitMode = 'per100g' | 'perPiece'
+
+const SERVING_NAME_OPTIONS = ['шт', 'ломтик', 'стакан', 'ст.л.', 'ч.л.']
+
 function parseDecimal(value: string): number {
   return parseFloat(value.replace(',', '.'))
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function per100ToPerPiece(per100: number, pieceWeight: number): number {
+  return round1((per100 * pieceWeight) / 100)
+}
+
+function perPieceTo100(perPiece: number, pieceWeight: number): number {
+  return round1((perPiece / pieceWeight) * 100)
 }
 
 function pluralizeIngredients(n: number): string {
@@ -57,6 +73,9 @@ export function ProductsPage() {
   const [formFat, setFormFat] = useState('')
   const [formCarbs, setFormCarbs] = useState('')
   const [formFavorite, setFormFavorite] = useState(false)
+  const [formUnitMode, setFormUnitMode] = useState<UnitMode>('per100g')
+  const [formPieceWeight, setFormPieceWeight] = useState('')
+  const [formServingName, setFormServingName] = useState('шт')
 
   const {
     products,
@@ -97,6 +116,18 @@ export function ProductsPage() {
     setFormFavorite(v)
     productForm.markDirty()
   }
+  function updateFormUnitMode(v: UnitMode) {
+    setFormUnitMode(v)
+    productForm.markDirty()
+  }
+  function updateFormPieceWeight(v: string) {
+    setFormPieceWeight(v)
+    productForm.markDirty()
+  }
+  function updateFormServingName(v: string) {
+    setFormServingName(v)
+    productForm.markDirty()
+  }
 
   const filteredProducts = useMemo(() => {
     const query = productQuery.trim().toLowerCase()
@@ -106,9 +137,11 @@ export function ProductsPage() {
   }, [products, productFilter, productQuery])
 
   const macroFieldValid = (v: string) => isValidNumberInput(v, { min: 0, max: 1000 })
+  const pieceWeightValid = isValidNumberInput(formPieceWeight, { min: 1, max: 5000 })
   const formValid =
     formName.trim().length > 0 &&
-    [formCalories, formProtein, formFat, formCarbs].every(macroFieldValid)
+    [formCalories, formProtein, formFat, formCarbs].every(macroFieldValid) &&
+    (formUnitMode === 'per100g' || pieceWeightValid)
 
   function openCreateForm() {
     setEditingProduct(null)
@@ -118,6 +151,9 @@ export function ProductsPage() {
     setFormFat('')
     setFormCarbs('')
     setFormFavorite(false)
+    setFormUnitMode('per100g')
+    setFormPieceWeight('')
+    setFormServingName('шт')
     productForm.markClean()
     setProductView('form')
   }
@@ -126,11 +162,26 @@ export function ProductsPage() {
     (product: Product) => {
       setEditingProduct(product)
       setFormName(product.name)
-      setFormCalories(String(product.calories_per_100g))
-      setFormProtein(String(product.protein_per_100g))
-      setFormFat(String(product.fat_per_100g))
-      setFormCarbs(String(product.carbs_per_100g))
       setFormFavorite(product.is_favorite)
+
+      if (product.piece_weight_g) {
+        setFormUnitMode('perPiece')
+        setFormPieceWeight(String(product.piece_weight_g))
+        setFormServingName(product.serving_name || 'шт')
+        setFormCalories(String(per100ToPerPiece(product.calories_per_100g, product.piece_weight_g)))
+        setFormProtein(String(per100ToPerPiece(product.protein_per_100g, product.piece_weight_g)))
+        setFormFat(String(per100ToPerPiece(product.fat_per_100g, product.piece_weight_g)))
+        setFormCarbs(String(per100ToPerPiece(product.carbs_per_100g, product.piece_weight_g)))
+      } else {
+        setFormUnitMode('per100g')
+        setFormPieceWeight('')
+        setFormServingName('шт')
+        setFormCalories(String(product.calories_per_100g))
+        setFormProtein(String(product.protein_per_100g))
+        setFormFat(String(product.fat_per_100g))
+        setFormCarbs(String(product.carbs_per_100g))
+      }
+
       productForm.markClean()
       setProductView('form')
     },
@@ -148,14 +199,31 @@ export function ProductsPage() {
     if (!formValid) return
     setSubmitting(true)
 
-    const patch = {
-      name: formName.trim(),
-      calories_per_100g: parseDecimal(formCalories),
-      protein_per_100g: parseDecimal(formProtein),
-      fat_per_100g: parseDecimal(formFat),
-      carbs_per_100g: parseDecimal(formCarbs),
-      is_favorite: formFavorite,
-    }
+    const patch =
+      formUnitMode === 'perPiece'
+        ? (() => {
+            const pieceWeight = parseDecimal(formPieceWeight)
+            return {
+              name: formName.trim(),
+              calories_per_100g: perPieceTo100(parseDecimal(formCalories), pieceWeight),
+              protein_per_100g: perPieceTo100(parseDecimal(formProtein), pieceWeight),
+              fat_per_100g: perPieceTo100(parseDecimal(formFat), pieceWeight),
+              carbs_per_100g: perPieceTo100(parseDecimal(formCarbs), pieceWeight),
+              is_favorite: formFavorite,
+              piece_weight_g: pieceWeight,
+              serving_name: formServingName.trim() || 'шт',
+            }
+          })()
+        : {
+            name: formName.trim(),
+            calories_per_100g: parseDecimal(formCalories),
+            protein_per_100g: parseDecimal(formProtein),
+            fat_per_100g: parseDecimal(formFat),
+            carbs_per_100g: parseDecimal(formCarbs),
+            is_favorite: formFavorite,
+            piece_weight_g: null,
+            serving_name: 'шт',
+          }
 
     try {
       if (editingProduct) {
@@ -216,6 +284,12 @@ export function ProductsPage() {
           onCarbsChange={updateFormCarbs}
           favorite={formFavorite}
           onFavoriteChange={updateFormFavorite}
+          unitMode={formUnitMode}
+          onUnitModeChange={updateFormUnitMode}
+          pieceWeight={formPieceWeight}
+          onPieceWeightChange={updateFormPieceWeight}
+          servingName={formServingName}
+          onServingNameChange={updateFormServingName}
           valid={formValid}
           submitting={submitting}
           onCancel={() => productForm.handleBack(() => setProductView('list'))}
@@ -401,6 +475,12 @@ const ProductLibraryRow = memo(function ProductLibraryRow({
         <span className="text-xs text-foreground/50">
           {product.calories_per_100g} ккал · Б: {product.protein_per_100g}г · Ж: {product.fat_per_100g}г · У:{' '}
           {product.carbs_per_100g}г <span className="text-foreground/30">на 100г</span>
+          {product.piece_weight_g && (
+            <span className="text-foreground/30">
+              {' '}
+              · 1 {product.serving_name} = {product.piece_weight_g}г
+            </span>
+          )}
         </span>
       </button>
       <button type="button" onClick={() => onToggleFavorite(product.id)} className="shrink-0 p-1">
@@ -444,6 +524,12 @@ interface ProductFormProps {
   onCarbsChange: (v: string) => void
   favorite: boolean
   onFavoriteChange: (v: boolean) => void
+  unitMode: UnitMode
+  onUnitModeChange: (v: UnitMode) => void
+  pieceWeight: string
+  onPieceWeightChange: (v: string) => void
+  servingName: string
+  onServingNameChange: (v: string) => void
   valid: boolean
   submitting: boolean
   onCancel: () => void
@@ -464,6 +550,12 @@ function ProductForm({
   onCarbsChange,
   favorite,
   onFavoriteChange,
+  unitMode,
+  onUnitModeChange,
+  pieceWeight,
+  onPieceWeightChange,
+  servingName,
+  onServingNameChange,
   valid,
   submitting,
   onCancel,
@@ -473,6 +565,13 @@ function ProductForm({
     if (value.trim() === '') return null
     return isValidNumberInput(value, { min: 0, max: 1000 }) ? null : 'От 0 до 1000'
   }
+
+  function pieceWeightError(value: string): string | null {
+    if (value.trim() === '') return null
+    return isValidNumberInput(value, { min: 1, max: 5000 }) ? null : 'От 1 до 5000'
+  }
+
+  const unitLabel = unitMode === 'perPiece' ? `1 ${servingName || 'шт'}` : '100г'
 
   return (
     <div className="flex flex-col gap-4">
@@ -491,8 +590,74 @@ function ProductForm({
         />
       </Field>
 
+      <Field label="Указать КБЖУ на:">
+        <div className="flex gap-1 rounded-xl bg-surface p-1">
+          <button
+            type="button"
+            onClick={() => onUnitModeChange('per100g')}
+            className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+              unitMode === 'per100g' ? 'bg-accent text-background' : 'text-foreground/60'
+            }`}
+          >
+            100 грамм
+          </button>
+          <button
+            type="button"
+            onClick={() => onUnitModeChange('perPiece')}
+            className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+              unitMode === 'perPiece' ? 'bg-accent text-background' : 'text-foreground/60'
+            }`}
+          >
+            1 штуку / порцию
+          </button>
+        </div>
+      </Field>
+
+      {unitMode === 'perPiece' && (
+        <>
+          <Field label="Вес 1 штуки (г)" error={pieceWeightError(pieceWeight)}>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={pieceWeight}
+              onChange={(e) => onPieceWeightChange(e.target.value)}
+              placeholder="60"
+              className={`${fieldInputClasses} ${pieceWeightError(pieceWeight) ? 'border-red-400' : ''}`}
+            />
+          </Field>
+
+          <Field label="Название порции">
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap gap-2">
+                {SERVING_NAME_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => onServingNameChange(option)}
+                    className={`min-h-[36px] rounded-lg border px-3 text-sm font-medium transition ${
+                      servingName === option
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border bg-surface text-foreground'
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={servingName}
+                onChange={(e) => onServingNameChange(e.target.value)}
+                placeholder="Свой вариант"
+                className={fieldInputClasses}
+              />
+            </div>
+          </Field>
+        </>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Калории на 100г" error={fieldError(calories)}>
+        <Field label={`Калории на ${unitLabel}`} error={fieldError(calories)}>
           <input
             type="text"
             inputMode="decimal"
@@ -501,7 +666,7 @@ function ProductForm({
             className={`${fieldInputClasses} ${fieldError(calories) ? 'border-red-400' : ''}`}
           />
         </Field>
-        <Field label="Белки на 100г" error={fieldError(protein)}>
+        <Field label={`Белки на ${unitLabel}`} error={fieldError(protein)}>
           <input
             type="text"
             inputMode="decimal"
@@ -510,7 +675,7 @@ function ProductForm({
             className={`${fieldInputClasses} ${fieldError(protein) ? 'border-red-400' : ''}`}
           />
         </Field>
-        <Field label="Жиры на 100г" error={fieldError(fat)}>
+        <Field label={`Жиры на ${unitLabel}`} error={fieldError(fat)}>
           <input
             type="text"
             inputMode="decimal"
@@ -519,7 +684,7 @@ function ProductForm({
             className={`${fieldInputClasses} ${fieldError(fat) ? 'border-red-400' : ''}`}
           />
         </Field>
-        <Field label="Углеводы на 100г" error={fieldError(carbs)}>
+        <Field label={`Углеводы на ${unitLabel}`} error={fieldError(carbs)}>
           <input
             type="text"
             inputMode="decimal"

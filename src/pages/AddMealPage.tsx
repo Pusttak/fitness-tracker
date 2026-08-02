@@ -16,6 +16,9 @@ type ContentTab = 'products' | 'recipes' | 'quick'
 type SubView = 'list' | 'productGrams' | 'newProduct' | 'recipeGrams'
 
 const QUICK_PORTIONS = [50, 100, 150, 200, 250, 300]
+const QUICK_PIECES = [0.5, 1, 1.5, 2, 3]
+
+type GramsMode = 'grams' | 'pieces'
 
 const CONTENT_TABS: { value: ContentTab; label: string }[] = [
   { value: 'products', label: 'Продукты' },
@@ -68,6 +71,8 @@ export function AddMealPage() {
   const [productQuery, setProductQuery] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [gramsInput, setGramsInput] = useState('100')
+  const [gramsMode, setGramsMode] = useState<GramsMode>('grams')
+  const [piecesInput, setPiecesInput] = useState('1')
 
   const [newName, setNewName] = useState('')
   const [newCalories, setNewCalories] = useState('')
@@ -140,8 +145,14 @@ export function AddMealPage() {
     quickForm.markDirty()
   }
 
-  const grams = parseDecimal(gramsInput)
-  const gramsValid = isValidNumberInput(gramsInput, { min: 1, max: 5000 })
+  const pieceWeight = selectedProduct?.piece_weight_g ?? null
+  const piecesValid = isValidNumberInput(piecesInput, { min: 0.1, max: 100 })
+  const piecesValue = parseDecimal(piecesInput)
+
+  const grams =
+    gramsMode === 'pieces' && pieceWeight ? piecesValue * pieceWeight : parseDecimal(gramsInput)
+  const gramsValid =
+    gramsMode === 'pieces' ? pieceWeight !== null && piecesValid : isValidNumberInput(gramsInput, { min: 1, max: 5000 })
 
   const macros = useMemo(() => {
     if (!selectedProduct || !gramsValid) return null
@@ -187,6 +198,8 @@ export function AddMealPage() {
   function handleSelectProduct(product: Product) {
     setSelectedProduct(product)
     setGramsInput('100')
+    setPiecesInput('1')
+    setGramsMode(product.piece_weight_g ? 'pieces' : 'grams')
     setError(null)
     setSubView('productGrams')
   }
@@ -236,9 +249,13 @@ export function AddMealPage() {
         fat_per_100g: parseDecimal(newFat),
         carbs_per_100g: parseDecimal(newCarbs),
         is_favorite: newFavorite,
+        piece_weight_g: null,
+        serving_name: 'шт',
       })
       setSelectedProduct(product)
       setGramsInput('100')
+      setPiecesInput('1')
+      setGramsMode('grams')
       setSubView('productGrams')
     } catch {
       setError('Не удалось сохранить продукт. Попробуйте ещё раз.')
@@ -477,41 +494,104 @@ export function AddMealPage() {
         <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
           <p className="text-lg font-semibold text-foreground">{selectedProduct.name}</p>
 
-          <div className="relative">
-            <input
-              autoFocus
-              type="text"
-              inputMode="decimal"
-              value={gramsInput}
-              onChange={(e) => setGramsInput(e.target.value)}
-              className="min-h-[52px] w-full rounded-xl border border-border bg-surface px-4 pr-12 text-lg text-foreground outline-none focus:border-accent"
-            />
-            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-foreground/50">
-              г
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            {QUICK_PORTIONS.map((g) => (
+          {pieceWeight && (
+            <div className="flex gap-1 rounded-xl bg-surface p-1">
               <button
-                key={g}
                 type="button"
-                onClick={() => setGramsInput(String(g))}
-                className={`min-h-[44px] rounded-xl border text-sm font-medium transition ${
-                  gramsInput === String(g)
-                    ? 'border-accent bg-accent/15 text-accent'
-                    : 'border-border bg-surface text-foreground'
+                onClick={() => setGramsMode('grams')}
+                className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+                  gramsMode === 'grams' ? 'bg-accent text-background' : 'text-foreground/60'
                 }`}
               >
-                {g}г
+                Граммы
               </button>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={() => setGramsMode('pieces')}
+                className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+                  gramsMode === 'pieces' ? 'bg-accent text-background' : 'text-foreground/60'
+                }`}
+              >
+                {selectedProduct.serving_name || 'Штуки'}
+              </button>
+            </div>
+          )}
+
+          {gramsMode === 'pieces' && pieceWeight ? (
+            <>
+              <div className="relative">
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="decimal"
+                  value={piecesInput}
+                  onChange={(e) => setPiecesInput(e.target.value)}
+                  className="min-h-[52px] w-full rounded-xl border border-border bg-surface px-4 pr-16 text-lg text-foreground outline-none focus:border-accent"
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-foreground/50">
+                  {selectedProduct.serving_name || 'шт'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-5 gap-2">
+                {QUICK_PIECES.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPiecesInput(String(p))}
+                    className={`min-h-[44px] rounded-xl border text-sm font-medium transition ${
+                      piecesInput === String(p)
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border bg-surface text-foreground'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="relative">
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="decimal"
+                  value={gramsInput}
+                  onChange={(e) => setGramsInput(e.target.value)}
+                  className="min-h-[52px] w-full rounded-xl border border-border bg-surface px-4 pr-12 text-lg text-foreground outline-none focus:border-accent"
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-foreground/50">
+                  г
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                {QUICK_PORTIONS.map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setGramsInput(String(g))}
+                    className={`min-h-[44px] rounded-xl border text-sm font-medium transition ${
+                      gramsInput === String(g)
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-border bg-surface text-foreground'
+                    }`}
+                  >
+                    {g}г
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
 
           {macros && (
             <div className="rounded-2xl border border-accent/30 bg-accent/10 p-4 text-center">
               <p className="text-sm text-foreground/80">
-                {grams}г → <span className="font-semibold text-foreground">{macros.calories} ккал</span> · Б:{' '}
+                {gramsMode === 'pieces' && pieceWeight
+                  ? `${piecesValue} ${selectedProduct.serving_name || 'шт'} (${grams}г)`
+                  : `${grams}г`}{' '}
+                → <span className="font-semibold text-foreground">{macros.calories} ккал</span> · Б:{' '}
                 {macros.protein}г · Ж: {macros.fat}г · У: {macros.carbs}г
               </p>
             </div>

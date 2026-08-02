@@ -10,6 +10,8 @@ export type MealItemKind = 'product' | 'recipe' | 'quick'
 export interface MealItemDisplay extends MealItem {
   displayName: string
   kind: MealItemKind
+  pieceWeightG: number | null
+  servingName: string | null
 }
 
 export interface MealGroup {
@@ -37,7 +39,7 @@ function emptyMeals(): MealsByType {
 }
 
 interface MealItemRow extends MealItem {
-  products: { name: string } | null
+  products: { name: string; piece_weight_g: number | null; serving_name: string } | null
   recipes: { name: string } | null
 }
 
@@ -77,7 +79,7 @@ export function useMeals(date: string) {
     if (mealLogIds.length > 0) {
       const { data, error: itemsError } = await supabase
         .from('meal_items')
-        .select('*, products(name), recipes(name)')
+        .select('*, products(name, piece_weight_g, serving_name), recipes(name)')
         .in('meal_id', mealLogIds)
 
       if (itemsError) {
@@ -105,6 +107,8 @@ export function useMeals(date: string) {
         ...rest,
         kind,
         displayName: products?.name ?? recipes?.name ?? item.name ?? 'Без названия',
+        pieceWeightG: products?.piece_weight_g ?? null,
+        servingName: products?.serving_name ?? null,
       })
     }
 

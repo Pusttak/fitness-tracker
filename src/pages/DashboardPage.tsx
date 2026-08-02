@@ -394,11 +394,17 @@ const MealSection = memo(function MealSection({ type, group, isOpen, onToggle, o
   )
 })
 
+function formatPieces(value: number): string {
+  return String(Number(value.toFixed(2)))
+}
+
 const MealItemRow = memo(function MealItemRow({ item }: { item: MealItemDisplay }) {
   const nameLine =
-    item.weight_g !== null
-      ? `${item.displayName} — ${item.weight_g}г — ${item.calories} ккал`
-      : `${item.displayName} — ${item.calories} ккал`
+    item.weight_g !== null && item.pieceWeightG
+      ? `${item.displayName} — ${formatPieces(item.weight_g / item.pieceWeightG)} ${item.servingName ?? 'шт'} (${item.weight_g}г) — ${item.calories} ккал`
+      : item.weight_g !== null
+        ? `${item.displayName} — ${item.weight_g}г — ${item.calories} ккал`
+        : `${item.displayName} — ${item.calories} ккал`
 
   return (
     <div className="flex flex-col gap-0.5 bg-surface px-1 py-2">
