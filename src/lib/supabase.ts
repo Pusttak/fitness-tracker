@@ -9,4 +9,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
   )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // HashRouter uses window.location.hash for routing, so Supabase's built-in
+    // hash-token auto-detection would race with the router. The recovery hash
+    // is parsed manually in App.tsx instead.
+    detectSessionInUrl: false,
+  },
+})
