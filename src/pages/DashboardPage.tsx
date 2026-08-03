@@ -58,7 +58,7 @@ export function DashboardPage() {
   const [searchParams] = useSearchParams()
 
   const [date, setDate] = useState(() => searchParams.get('date') ?? todayIso())
-  const [openSections, setOpenSections] = useState<Set<MealType>>(new Set(MEAL_TYPES))
+  const [openSections, setOpenSections] = useState<Set<MealType>>(new Set())
   const [weightModalOpen, setWeightModalOpen] = useState(false)
 
   const { meals, totals, loading: mealsLoading, error: mealsError, retry: mealsRetry, deleteItem } = useMeals(date)
