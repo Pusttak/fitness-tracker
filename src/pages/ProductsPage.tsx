@@ -9,6 +9,7 @@ import { useDirtyForm } from '../hooks/useDirtyForm'
 import { useFormPersist } from '../hooks/useFormPersist'
 import { SwipeActions } from '../components/SwipeActions'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
+import { ConfirmModal } from '../components/ConfirmModal'
 import { isValidNumberInput } from '../lib/validation'
 import { ProductsPageSkeleton } from '../components/PageSkeletons'
 import { ErrorState } from '../components/ErrorState'
@@ -85,7 +86,6 @@ const fieldInputClasses =
 interface DeleteTarget {
   id: string
   name: string
-  inUse: boolean
 }
 
 export function ProductsPage() {
@@ -153,7 +153,6 @@ export function ProductsPage() {
     updateProduct,
     deleteProduct,
     toggleFavorite,
-    checkProductInUse,
   } = useProducts()
   const { recipes, loading: recipesLoading, deleteRecipe } = useRecipes()
   const navigate = useNavigate()
@@ -310,18 +309,15 @@ export function ProductsPage() {
     }
   }
 
-  const handleDeleteProduct = useCallback(
-    async (product: Product) => {
-      const inUse = await checkProductInUse(product.id)
-      setDeleteTarget({ id: product.id, name: product.name, inUse })
-    },
-    [checkProductInUse],
-  )
+  const handleDeleteProduct = useCallback((product: Product) => {
+    setDeleteTarget({ id: product.id, name: product.name })
+  }, [])
 
   async function handleConfirmDeleteProduct() {
     if (!deleteTarget) return
     await deleteProduct(deleteTarget.id)
     setDeleteTarget(null)
+    setProductView('list')
   }
 
   if (productsLoading || recipesLoading) {
@@ -363,6 +359,7 @@ export function ProductsPage() {
           submitting={submitting}
           onCancel={() => productForm.handleBack(() => setProductView('list'))}
           onSave={handleSaveForm}
+          onDelete={editingProduct ? () => handleDeleteProduct(editingProduct) : undefined}
         />
       ) : (
         <>
@@ -419,7 +416,7 @@ export function ProductsPage() {
                         {
                           label: 'Изменить',
                           icon: Pencil,
-                          colorClass: 'bg-overlay/10 text-foreground',
+                          colorClass: 'bg-blue-600 text-white',
                           onClick: () => handleEditProduct(product),
                         },
                         {
@@ -481,11 +478,7 @@ export function ProductsPage() {
       {deleteTarget && (
         <ConfirmModal
           title="Удалить продукт?"
-          message={
-            deleteTarget.inUse
-              ? `«${deleteTarget.name}» уже есть в истории приёмов пищи. Записи сохранятся с уже посчитанными КБЖУ, но сам продукт будет удалён из базы.`
-              : `Удалить «${deleteTarget.name}» из базы продуктов?`
-          }
+          message={`Удалить «${deleteTarget.name}»? Записи в дневнике питания сохранятся.`}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={handleConfirmDeleteProduct}
         />
@@ -494,7 +487,7 @@ export function ProductsPage() {
       {deleteRecipeTarget && (
         <ConfirmModal
           title="Удалить рецепт?"
-          message={`Удалить «${deleteRecipeTarget.name}» из базы рецептов?`}
+          message={`Удалить рецепт «${deleteRecipeTarget.name}»? Записи в дневнике питания сохранятся.`}
           onCancel={() => setDeleteRecipeTarget(null)}
           onConfirm={async () => {
             await deleteRecipe(deleteRecipeTarget.id)
@@ -547,7 +540,7 @@ const ProductLibraryRow = memo(function ProductLibraryRow({
           {product.piece_weight_g && (
             <span className="text-foreground/30">
               {' '}
-              · 1 {product.serving_name} = {product.piece_weight_g}г
+              · {product.piece_weight_g}г / {product.serving_name}
             </span>
           )}
         </span>
@@ -571,9 +564,9 @@ function RecipeLibraryRow({ recipe, onTap }: { recipe: RecipeWithCount; onTap: (
     >
       <span className="text-sm font-medium text-foreground">{recipe.name}</span>
       <span className="text-xs text-foreground/50">
-        {recipe.calories_per_100g} ккал · Б: {recipe.protein_per_100g}г · Ж: {recipe.fat_per_100g}г · У:{' '}
-        {recipe.carbs_per_100g}г <span className="text-foreground/30">на 100г</span> ·{' '}
-        {pluralizeIngredients(recipe.ingredientCount)}
+        {recipe.total_weight_g}г · {recipe.calories_per_100g} ккал · Б: {recipe.protein_per_100g}г · Ж:{' '}
+        {recipe.fat_per_100g}г · У: {recipe.carbs_per_100g}г{' '}
+        <span className="text-foreground/30">на 100г</span> · {pluralizeIngredients(recipe.ingredientCount)}
       </span>
     </button>
   )
@@ -603,6 +596,7 @@ interface ProductFormProps {
   submitting: boolean
   onCancel: () => void
   onSave: () => void
+  onDelete?: () => void
 }
 
 function ProductForm({
@@ -629,6 +623,7 @@ function ProductForm({
   submitting,
   onCancel,
   onSave,
+  onDelete,
 }: ProductFormProps) {
   function fieldError(value: string): string | null {
     if (value.trim() === '') return null
@@ -791,6 +786,16 @@ function ProductForm({
           {submitting ? 'Сохраняем…' : 'Сохранить'}
         </button>
       </div>
+
+      {isEditing && onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="min-h-[44px] font-medium text-red-500"
+        >
+          Удалить
+        </button>
+      )}
     </div>
   )
 }
@@ -805,45 +810,3 @@ function Field({ label, children, error }: { label: string; children: ReactNode;
   )
 }
 
-function ConfirmModal({
-  title,
-  message,
-  onCancel,
-  onConfirm,
-}: {
-  title: string
-  message: string
-  onCancel: () => void
-  onConfirm: () => void
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 px-3 pb-6 sm:items-center"
-      onClick={onCancel}
-    >
-      <div
-        className="w-full max-w-app rounded-2xl border border-border bg-surface p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="pb-2 text-lg font-semibold text-foreground">{title}</p>
-        <p className="pb-4 text-sm text-foreground/70">{message}</p>
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="min-h-[44px] flex-1 rounded-xl border border-border font-medium text-foreground"
-          >
-            Отмена
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="min-h-[44px] flex-1 rounded-xl bg-red-500 font-medium text-white"
-          >
-            Удалить
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}

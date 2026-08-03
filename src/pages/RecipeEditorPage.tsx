@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, Plus, Search, Trash2 } from 'lucide-react'
 import { useToast } from '../context/ToastContext'
 import { useProducts } from '../hooks/useProducts'
 import { useRecipes } from '../hooks/useRecipes'
 import { useDirtyForm } from '../hooks/useDirtyForm'
 import { useFormPersist } from '../hooks/useFormPersist'
+import { SwipeActions } from '../components/SwipeActions'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
+import { ConfirmModal } from '../components/ConfirmModal'
 import { per100g, sumIngredients, sumIngredientWeight, type RecipeIngredientDraft } from '../lib/recipeMath'
 import { isValidNumberInput } from '../lib/validation'
 import { COMMON_PRODUCTS, PRODUCT_CATEGORIES, type CommonProduct } from '../data/commonProducts'
@@ -44,7 +46,7 @@ export function RecipeEditorPage() {
   const location = useLocation()
   const navState = (location.state as NavState | null) ?? null
 
-  const { recipes, getRecipeIngredients, saveRecipe } = useRecipes()
+  const { recipes, getRecipeIngredients, saveRecipe, deleteRecipe } = useRecipes()
   const { products, searchResults, favorites, recent, setSearch: setProductSearch, addProduct } = useProducts()
   const recipeForm = useDirtyForm()
 
@@ -106,6 +108,7 @@ export function RecipeEditorPage() {
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   useEffect(() => {
     const timeout = setTimeout(() => setProductSearch(ingredientQuery), 300)
@@ -263,6 +266,17 @@ export function RecipeEditorPage() {
     }
   }
 
+  async function handleDeleteRecipe() {
+    if (!id) return
+    try {
+      await deleteRecipe(id)
+      setDeleteConfirmOpen(false)
+      navigate('/products', { replace: true })
+    } catch {
+      setError('Не удалось удалить рецепт. Попробуйте ещё раз.')
+    }
+  }
+
   if (id && !loadedExisting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-foreground/60">
@@ -305,7 +319,19 @@ export function RecipeEditorPage() {
               <p className="py-4 text-center text-sm text-foreground/50">Пока нет ингредиентов</p>
             ) : (
               ingredients.map((ing, index) => (
-                <IngredientRow key={`${ing.product.id}-${index}`} ingredient={ing} onRemove={() => handleRemoveIngredient(index)} />
+                <SwipeActions
+                  key={`${ing.product.id}-${index}`}
+                  actions={[
+                    {
+                      label: 'Удалить',
+                      icon: Trash2,
+                      colorClass: 'bg-red-500 text-white',
+                      onClick: () => handleRemoveIngredient(index),
+                    },
+                  ]}
+                >
+                  <IngredientRow ingredient={ing} />
+                </SwipeActions>
               ))
             )}
 
@@ -371,8 +397,18 @@ export function RecipeEditorPage() {
             disabled={!canSave || submitting}
             className="min-h-[52px] rounded-xl bg-accent font-medium text-background transition hover:bg-accent-hover disabled:opacity-40"
           >
-            {submitting ? 'Сохраняем…' : 'Сохранить рецепт'}
+            {submitting ? 'Сохраняем…' : id ? 'Сохранить изменения' : 'Сохранить рецепт'}
           </button>
+
+          {id && (
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(true)}
+              className="min-h-[44px] font-medium text-red-500"
+            >
+              Удалить рецепт
+            </button>
+          )}
         </div>
       )}
 
@@ -627,11 +663,20 @@ export function RecipeEditorPage() {
       {recipeForm.showConfirm && (
         <UnsavedChangesModal onStay={recipeForm.cancelLeave} onLeave={recipeForm.confirmLeave} />
       )}
+
+      {deleteConfirmOpen && (
+        <ConfirmModal
+          title="Удалить рецепт?"
+          message={`Удалить рецепт «${name}»? Записи в дневнике питания сохранятся.`}
+          onCancel={() => setDeleteConfirmOpen(false)}
+          onConfirm={handleDeleteRecipe}
+        />
+      )}
     </div>
   )
 }
 
-function IngredientRow({ ingredient, onRemove }: { ingredient: RecipeIngredientDraft; onRemove: () => void }) {
+function IngredientRow({ ingredient }: { ingredient: RecipeIngredientDraft }) {
   const factor = ingredient.weight_g / 100
   const calories = Math.round(ingredient.product.calories_per_100g * factor)
   const protein = Math.round(ingredient.product.protein_per_100g * factor)
@@ -644,20 +689,11 @@ function IngredientRow({ ingredient, onRemove }: { ingredient: RecipeIngredientD
       : `${ingredient.product.name} — ${ingredient.weight_g}г — ${calories} ккал`
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface p-3">
-      <div className="flex flex-col gap-0.5">
-        <span className="text-sm text-foreground">{nameLine}</span>
-        <span className="text-xs text-foreground/50">
-          Б: {protein}г · Ж: {fat}г · У: {carbs}г
-        </span>
-      </div>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-foreground/40 hover:bg-overlay/5 hover:text-red-400"
-      >
-        <X size={16} />
-      </button>
+    <div className="flex flex-col gap-0.5 bg-surface p-3">
+      <span className="text-sm text-foreground">{nameLine}</span>
+      <span className="text-xs text-foreground/50">
+        Б: {protein}г · Ж: {fat}г · У: {carbs}г
+      </span>
     </div>
   )
 }
