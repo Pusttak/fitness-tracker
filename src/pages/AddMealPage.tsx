@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, Plus, Search } from 'lucide-react'
+import { ChevronLeft, Plus, Search, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { supabase } from '../lib/supabase'
 import { useProducts } from '../hooks/useProducts'
 import { useRecipes } from '../hooks/useRecipes'
+import { useMeals, type MealGroup } from '../hooks/useMeals'
 import { useDirtyForm } from '../hooks/useDirtyForm'
 import { useFormPersist } from '../hooks/useFormPersist'
+import { SwipeActions } from '../components/SwipeActions'
 import { UnsavedChangesModal } from '../components/UnsavedChangesModal'
 import { MEAL_TYPES, MEAL_TYPE_LABELS } from '../lib/mealTypes'
 import { isValidNumberInput } from '../lib/validation'
@@ -50,6 +52,25 @@ function formatDayMonth(dateIso: string): string {
   return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(parseLocalDate(dateIso))
 }
 
+function pluralizeProducts(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return `${n} продукт`
+  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} продукта`
+  return `${n} продуктов`
+}
+
+function formatCompactMealItem(item: MealGroup['items'][number]): string {
+  if (item.weight_g !== null && item.pieceWeightG) {
+    const pieces = Number((item.weight_g / item.pieceWeightG).toFixed(2))
+    return `${item.displayName} ${pieces} ${item.servingName ?? 'шт'}`
+  }
+  if (item.weight_g !== null) {
+    return `${item.displayName} ${item.weight_g}г`
+  }
+  return item.displayName
+}
+
 const fieldInputClasses =
   'min-h-[44px] w-full rounded-xl border border-border bg-surface px-4 text-foreground outline-none focus:border-accent'
 
@@ -69,16 +90,18 @@ export function AddMealPage() {
   const [searchParams] = useSearchParams()
   const navState = (location.state as NavState | null) ?? null
 
-  const {
-    values: addMealDraft,
-    setValues: setAddMealDraft,
-    clearPersisted: clearAddMealDraft,
-  } = useFormPersist<AddMealDraft>('add-meal-form', ADD_MEAL_DRAFT_DEFAULT)
+  const { values: addMealDraft, setValues: setAddMealDraft } = useFormPersist<AddMealDraft>(
+    'add-meal-form',
+    ADD_MEAL_DRAFT_DEFAULT,
+  )
 
   const [date] = useState(() => navState?.date ?? searchParams.get('date') ?? todayIso())
   const [mealType, setMealType] = useState<MealType>(
     () => navState?.mealType ?? (searchParams.get('type') as MealType | null) ?? addMealDraft.mealType,
   )
+
+  const { meals, retry: retryMeals, deleteItem: deleteMealItem } = useMeals(date)
+  const currentMealGroup = meals[mealType]
 
   const [contentTab, setContentTab] = useState<ContentTab>(navState?.initialTab ?? 'products')
   const [subView, setSubView] = useState<SubView>('list')
@@ -301,7 +324,7 @@ export function AddMealPage() {
     if (contentTab === 'quick') {
       quickForm.handleBack(() => navigate(-1))
     } else {
-      navigate(-1)
+      navigate(`/?date=${date}`, { replace: true })
     }
   }
 
@@ -418,9 +441,14 @@ export function AddMealPage() {
       return
     }
 
-    showToast('Сохранено ✓')
-    clearAddMealDraft()
-    navigate(`/?date=${date}`, { replace: true })
+    showToast('Добавлено ✓')
+    await retryMeals()
+    setSelectedProduct(null)
+    setGramsInput('100')
+    setPiecesInput('1')
+    setGramsMode('grams')
+    setSubView('list')
+    setSubmitting(false)
   }
 
   async function handleAddCatalogProductToMeal() {
@@ -455,11 +483,16 @@ export function AddMealPage() {
         return
       }
 
-      showToast('Сохранено ✓')
-      clearAddMealDraft()
-      navigate(`/?date=${date}`, { replace: true })
+      showToast('Добавлено ✓')
+      await retryMeals()
+      setSelectedCatalogProduct(null)
+      setCatalogGramsInput('100')
+      setCatalogPiecesInput('1')
+      setCatalogGramsMode('grams')
+      setSubView('list')
     } catch {
       setError('Не удалось добавить продукт. Попробуйте ещё раз.')
+    } finally {
       setSubmitting(false)
     }
   }
@@ -562,6 +595,14 @@ export function AddMealPage() {
           </button>
         ))}
       </div>
+
+      {subView === 'list' && (
+        <MealSummaryBar
+          mealType={mealType}
+          group={currentMealGroup}
+          onDeleteItem={(itemId) => deleteMealItem(itemId, mealType)}
+        />
+      )}
 
       {subView === 'list' && (
         <div className="flex gap-2 px-4 pb-2">
@@ -1172,6 +1213,45 @@ export function AddMealPage() {
 
       {quickForm.showConfirm && (
         <UnsavedChangesModal onStay={quickForm.cancelLeave} onLeave={quickForm.confirmLeave} />
+      )}
+    </div>
+  )
+}
+
+function MealSummaryBar({
+  mealType,
+  group,
+  onDeleteItem,
+}: {
+  mealType: MealType
+  group: MealGroup
+  onDeleteItem: (itemId: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 px-4 pb-2">
+      <p className="text-sm font-medium text-foreground">
+        {MEAL_TYPE_LABELS[mealType]} · {pluralizeProducts(group.items.length)} · {Math.round(group.totalCalories)} ккал
+      </p>
+      {group.items.length > 0 && (
+        <div className="flex flex-col gap-1 overflow-hidden rounded-xl">
+          {group.items.map((item) => (
+            <SwipeActions
+              key={item.id}
+              actions={[
+                {
+                  label: 'Удалить',
+                  icon: Trash2,
+                  colorClass: 'bg-red-500 text-white',
+                  onClick: () => onDeleteItem(item.id),
+                },
+              ]}
+            >
+              <div className="truncate bg-surface px-3 py-1.5 text-xs text-foreground/70">
+                {formatCompactMealItem(item)}
+              </div>
+            </SwipeActions>
+          ))}
+        </div>
       )}
     </div>
   )

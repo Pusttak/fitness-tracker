@@ -33,6 +33,14 @@ function parseDecimal(value: string): number {
   return parseFloat(value.replace(',', '.'))
 }
 
+function pluralizeIngredients(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return `${n} ингредиент`
+  if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} ингредиента`
+  return `${n} ингредиентов`
+}
+
 interface NavState {
   source?: 'add-meal'
   date?: string
@@ -223,8 +231,9 @@ export function RecipeEditorPage() {
       setCandidateCatalogProduct(null)
       setIngredientQuery('')
       setCatalogQuery('')
-      setView('main')
+      setView('addIngredientSearch')
       recipeForm.markDirty()
+      showToast('Добавлено ✓')
     } catch {
       setError('Не удалось добавить ингредиент. Попробуйте ещё раз.')
     } finally {
@@ -414,6 +423,31 @@ export function RecipeEditorPage() {
 
       {view === 'addIngredientSearch' && (
         <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
+          {ingredients.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-foreground/70">
+                Уже добавлено: {pluralizeIngredients(ingredients.length)}
+              </p>
+              <div className="flex flex-col gap-1 overflow-hidden rounded-xl">
+                {ingredients.map((ing, index) => (
+                  <SwipeActions
+                    key={`${ing.product.id}-${index}`}
+                    actions={[
+                      {
+                        label: 'Удалить',
+                        icon: Trash2,
+                        colorClass: 'bg-red-500 text-white',
+                        onClick: () => handleRemoveIngredient(index),
+                      },
+                    ]}
+                  >
+                    <IngredientRow ingredient={ing} />
+                  </SwipeActions>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-1 rounded-xl bg-surface p-1">
             <button
               type="button"

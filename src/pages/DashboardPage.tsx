@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChefHat, ChevronDown, ChevronLeft, ChevronRight, Dumbbell, Lightbulb, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -341,6 +341,19 @@ interface MealSectionProps {
 const MealSection = memo(function MealSection({ type, group, isOpen, onToggle, onAdd, onDeleteItem }: MealSectionProps) {
   const Icon = MEAL_TYPE_ICONS[type]
 
+  const macroTotals = useMemo(
+    () =>
+      group.items.reduce(
+        (acc, item) => ({
+          protein: acc.protein + item.protein,
+          fat: acc.fat + item.fat,
+          carbs: acc.carbs + item.carbs,
+        }),
+        { protein: 0, fat: 0, carbs: 0 },
+      ),
+    [group.items],
+  )
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface">
       <button
@@ -353,7 +366,18 @@ const MealSection = memo(function MealSection({ type, group, isOpen, onToggle, o
           <span className="font-medium text-foreground">{MEAL_TYPE_LABELS[type]}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm text-foreground/60">{group.totalCalories} ккал</span>
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-sm text-foreground">{Math.round(group.totalCalories)} ккал</span>
+            {group.items.length > 0 && (
+              <span className="text-xs text-foreground/50">
+                <span className="text-blue-400">Б: {Math.round(macroTotals.protein)}г</span>
+                {' · '}
+                <span className="text-amber-400">Ж: {Math.round(macroTotals.fat)}г</span>
+                {' · '}
+                <span className="text-emerald-400">У: {Math.round(macroTotals.carbs)}г</span>
+              </span>
+            )}
+          </div>
           <ChevronDown
             size={18}
             className={`text-foreground/40 transition-transform ${isOpen ? 'rotate-180' : ''}`}
